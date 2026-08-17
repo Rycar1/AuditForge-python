@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "django-drf-vuln-lab-v1",
+  "language": "python",
+  "framework": "django-drf",
+  "findings": [
+    {
+      "truth_id": "DJANGO-RAW-SQL",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "views.py", "line": 6},
+      "sink": {"file": "views.py", "line": 7}
+    },
+    {
+      "truth_id": "DRF-MARK-SAFE-XSS",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "views.py", "line": 11},
+      "sink": {"file": "views.py", "line": 12}
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+name: auditforge
+
+services:
+  auditforge:
+    build:
+      context: .
+      args:
+        AUDITFORGE_WITH_TOOLCHAINS: ${AUDITFORGE_WITH_TOOLCHAINS:-1}
+    image: auditforge:local
+    init: true
+    ports:
+      - "127.0.0.1:${AUDITFORGE_PORT:-8765}:8765"
+    environment:
+      # The server binds to all container interfaces, so its remote-bind
+      # safeguards remain enabled even though this Compose file publishes only
+      # to the host loopback interface.
+      AUDITFORGE_ALLOW_REMOTE: "1"
+      AUDITFORGE_ADMIN_TOKEN: ${AUDITFORGE_ADMIN_TOKEN:?Set a 32+ character AUDITFORGE_ADMIN_TOKEN in your environment or .env file}
+      AUDITFORGE_ALLOWED_HOSTS: ${AUDITFORGE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      AUDITFORGE_ALLOWED_ORIGINS: ${AUDITFORGE_ALLOWED_ORIGINS:-http://localhost:${AUDITFORGE_PORT:-8765},http://127.0.0.1:${AUDITFORGE_PORT:-8765}}
+      AUDITFORGE_ALLOWED_REPO_ROOTS: /source
+      XDG_CACHE_HOME: /var/cache/auditforge
+    volumes:
+      - auditforge-workspace:/workspace
+      - auditforge-cache:/var/cache/auditforge
+      - ${AUDITFORGE_SOURCE_DIR:-./source}:/source:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  auditforge-workspace:
+  auditforge-cache:

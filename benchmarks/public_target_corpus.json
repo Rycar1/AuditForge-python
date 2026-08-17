@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "purpose": "Pinned public intentionally-vulnerable source targets for static-analysis calibration. A detection is a review candidate, not proof of exploitability.",
+  "safety": "Fetch source only. Do not install dependencies, start services, expose ports, or run exploit payloads.",
+  "entries": [
+    {
+      "id": "owasp-nodegoat",
+      "source_url": "https://github.com/OWASP/NodeGoat",
+      "revision": "c5cb68a7084e4ae7dcc60e6a98768720a81841e8",
+      "license": "Apache-2.0",
+      "languages": ["javascript"],
+      "purpose": "OWASP Node.js training application",
+      "observed_static_candidates": {
+        "code_injection": 6
+      },
+      "notable_coverage": "Request-controlled eval calls in app/routes/contributions.js are classified as CWE-95 code injection."
+    },
+    {
+      "id": "dvwa",
+      "source_url": "https://github.com/digininja/DVWA",
+      "revision": "d45ba3c4e7efa7f023f25f58ab4af9912c887057",
+      "license": "GPL-3.0-or-later",
+      "languages": ["php"],
+      "purpose": "Deliberately Vulnerable Web Application training project",
+      "observed_static_candidates": {
+        "command_injection": 8,
+        "cross_site_scripting": 2,
+        "insecure_configuration": 4,
+        "path_traversal": 29,
+        "server_side_request_forgery": 23,
+        "sql_injection": 51
+      },
+      "notable_coverage": "PHP source corpus exercises SQL injection, command injection, path traversal, SSRF, and XSS rules."
+    }
+  ]
+}

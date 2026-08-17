@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "purpose": "Curated public-CVE regression catalog. Entries describe detection patterns only; a source match is a review candidate, not proof that a historical product CVE is exploitable.",
+  "entries": [
+    {
+      "cve": "CVE-2021-23337",
+      "source": "https://nvd.nist.gov/vuln/detail/CVE-2021-23337",
+      "ecosystem": "npm",
+      "package": "lodash",
+      "cwe": ["CWE-94"],
+      "pattern": "Untrusted request data reaches lodash/underscore dynamic template compilation.",
+      "taxonomy_id": "template_injection",
+      "status": "implemented"
+    },
+    {
+      "cve": "CVE-2022-24999",
+      "source": "https://nvd.nist.gov/vuln/detail/CVE-2022-24999",
+      "ecosystem": "npm",
+      "package": "qs",
+      "cwe": ["CWE-1321"],
+      "pattern": "Untrusted object reaches deep prototype-affecting merge APIs.",
+      "taxonomy_id": "prototype_pollution",
+      "status": "implemented"
+    },
+    {
+      "cve": "CVE-2022-22947",
+      "source": "https://nvd.nist.gov/vuln/detail/CVE-2022-22947",
+      "ecosystem": "maven",
+      "package": "org.springframework.cloud:spring-cloud-gateway",
+      "cwe": ["CWE-94", "CWE-917"],
+      "pattern": "Gateway Actuator exposure and authorization modelling requires a dedicated Spring configuration analyzer.",
+      "status": "planned"
+    }
+  ]
+}

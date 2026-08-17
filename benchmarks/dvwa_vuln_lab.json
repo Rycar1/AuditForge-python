@@ -1,0 +1,540 @@
+{
+  "schema_version": 1,
+  "name": "dvwa-vuln-lab-d45ba3c-v1",
+  "language": "php",
+  "framework": "dvwa",
+  "target": {
+    "name": "Damn Vulnerable Web Application",
+    "repository": "https://github.com/digininja/DVWA",
+    "revision": "d45ba3c4e7efa7f023f25f58ab4af9912c887057",
+    "source_root": ".",
+    "anchor_paths": "relative_to_source_root"
+  },
+  "scope": {
+    "purpose": "Static source-to-sink regression baseline for vulnerability classes currently expressible by the AuditForge PHP taxonomy.",
+    "included_taxonomies": [
+      "command_injection",
+      "sql_injection",
+      "cross_site_scripting",
+      "path_traversal",
+      "server_side_request_forgery",
+      "authentication_failure",
+      "authorization_failure"
+    ],
+    "security_levels": ["low", "medium", "high", "impossible"],
+    "counting_unit": "A truth item represents a distinct vulnerable or safe source-to-sink path. Multiple operating-system and database branches are intentionally separate paths.",
+    "notes": [
+      "The DOM XSS sink is shared by all security levels and changes behavior through the runtime $decodeURI value. It is represented once and must not be counted as four independent statically attributable findings.",
+      "File Inclusion low and medium permit remote URL inclusion when PHP allow_url_include is enabled, so those paths are also SSRF truth items. High remains a path-traversal/file-inclusion case but is a safe negative for SSRF.",
+      "Stored XSS paths terminate in the shared guestbook renderer. Medium and high encode message but leave name bypassable; impossible encodes both fields.",
+      "CSP impossible is not used as a safe negative because the checkout also exposes the high-level same-origin JSONP callback endpoint, making an isolated CSP-only classification contestable.",
+      "BAC high is a safe negative: executable code initializes its session identity from the current server-side user. The help text describing a client-controlled cookie is stale.",
+      "Authentication bypass variants are excluded because their vulnerable and safe behavior is implemented in shared companion files and cannot be distinguished with source/sink anchors alone."
+    ],
+    "unsupported_modules": [
+      "csrf",
+      "unrestricted_file_upload",
+      "weak_session_ids",
+      "authentication_bypass",
+      "open_redirect",
+      "cryptographic_failures",
+      "client_side_javascript_logic",
+      "api_sensitive_data_exposure",
+      "api_mass_assignment"
+    ],
+    "excluded_from_precision": "The corpus is not closed-world outside the listed truth paths. Unmatched findings in other DVWA modules require manual triage and must not automatically be treated as false positives."
+  },
+  "findings": [
+    {
+      "truth_id": "DVWA-AUTH-BRUTE-LOW",
+      "expected": "vulnerable",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/brute/source/low.php", "line": 8},
+      "sink": {"file": "vulnerabilities/brute/source/low.php", "line": 13},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-AUTH-BRUTE-MEDIUM",
+      "expected": "vulnerable",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/brute/source/medium.php", "line": 9},
+      "sink": {"file": "vulnerabilities/brute/source/medium.php", "line": 15},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-AUTH-BRUTE-HIGH",
+      "expected": "vulnerable",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/brute/source/high.php", "line": 13},
+      "sink": {"file": "vulnerabilities/brute/source/high.php", "line": 20},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-AUTH-BRUTE-IMPOSSIBLE",
+      "expected": "safe",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/brute/source/impossible.php", "line": 13},
+      "sink": {"file": "vulnerabilities/brute/source/impossible.php", "line": 56},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-AUTH-CAPTCHA-LOW",
+      "expected": "vulnerable",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/captcha/source/low.php", "line": 45},
+      "sink": {"file": "vulnerabilities/captcha/source/low.php", "line": 61},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-AUTH-CAPTCHA-MEDIUM",
+      "expected": "vulnerable",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/captcha/source/medium.php", "line": 55},
+      "sink": {"file": "vulnerabilities/captcha/source/medium.php", "line": 69},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-AUTH-CAPTCHA-HIGH",
+      "expected": "vulnerable",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/captcha/source/high.php", "line": 20},
+      "sink": {"file": "vulnerabilities/captcha/source/high.php", "line": 31},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-AUTH-CAPTCHA-IMPOSSIBLE",
+      "expected": "safe",
+      "taxonomy_id": "authentication_failure",
+      "source": {"file": "vulnerabilities/captcha/source/impossible.php", "line": 29},
+      "sink": {"file": "vulnerabilities/captcha/source/impossible.php", "line": 51},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-AUTHZ-BAC-LOW",
+      "expected": "vulnerable",
+      "taxonomy_id": "authorization_failure",
+      "source": {"file": "vulnerabilities/bac/source/low.php", "line": 19},
+      "sink": {"file": "vulnerabilities/bac/source/low.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-AUTHZ-BAC-MEDIUM",
+      "expected": "vulnerable",
+      "taxonomy_id": "authorization_failure",
+      "source": {"file": "vulnerabilities/bac/source/medium.php", "line": 17},
+      "sink": {"file": "vulnerabilities/bac/source/medium.php", "line": 29},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-AUTHZ-BAC-HIGH",
+      "expected": "safe",
+      "taxonomy_id": "authorization_failure",
+      "source": {"file": "vulnerabilities/bac/source/high.php", "line": 25},
+      "sink": {"file": "vulnerabilities/bac/source/high.php", "line": 48},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-AUTHZ-BAC-IMPOSSIBLE",
+      "expected": "safe",
+      "taxonomy_id": "authorization_failure",
+      "source": {"file": "vulnerabilities/bac/source/impossible.php", "line": 19},
+      "sink": {"file": "vulnerabilities/bac/source/impossible.php", "line": 83},
+      "line_tolerance": 1
+    },
+
+    {
+      "truth_id": "DVWA-CMD-EXEC-LOW-WINDOWS",
+      "expected": "vulnerable",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/low.php", "line": 5},
+      "sink": {"file": "vulnerabilities/exec/source/low.php", "line": 10},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-CMD-EXEC-LOW-POSIX",
+      "expected": "vulnerable",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/low.php", "line": 5},
+      "sink": {"file": "vulnerabilities/exec/source/low.php", "line": 14},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-CMD-EXEC-MEDIUM-WINDOWS",
+      "expected": "vulnerable",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/medium.php", "line": 5},
+      "sink": {"file": "vulnerabilities/exec/source/medium.php", "line": 19},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-CMD-EXEC-MEDIUM-POSIX",
+      "expected": "vulnerable",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/medium.php", "line": 5},
+      "sink": {"file": "vulnerabilities/exec/source/medium.php", "line": 23},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-CMD-EXEC-HIGH-WINDOWS",
+      "expected": "vulnerable",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/high.php", "line": 5},
+      "sink": {"file": "vulnerabilities/exec/source/high.php", "line": 26},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-CMD-EXEC-HIGH-POSIX",
+      "expected": "vulnerable",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/high.php", "line": 5},
+      "sink": {"file": "vulnerabilities/exec/source/high.php", "line": 30},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-CMD-API-HIGH-CONNECTIVITY",
+      "expected": "vulnerable",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/api/src/HealthController.php", "line": 84},
+      "sink": {"file": "vulnerabilities/api/src/HealthController.php", "line": 88},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-CMD-EXEC-IMPOSSIBLE-WINDOWS",
+      "expected": "safe",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/impossible.php", "line": 8},
+      "sink": {"file": "vulnerabilities/exec/source/impossible.php", "line": 22},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-CMD-EXEC-IMPOSSIBLE-POSIX",
+      "expected": "safe",
+      "taxonomy_id": "command_injection",
+      "source": {"file": "vulnerabilities/exec/source/impossible.php", "line": 8},
+      "sink": {"file": "vulnerabilities/exec/source/impossible.php", "line": 26},
+      "line_tolerance": 1
+    },
+
+    {
+      "truth_id": "DVWA-SQLI-LOW-MYSQL",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/low.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli/source/low.php", "line": 11},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-LOW-SQLITE",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/low.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli/source/low.php", "line": 34},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-MEDIUM-MYSQL",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/medium.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli/source/medium.php", "line": 12},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-MEDIUM-SQLITE",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/medium.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli/source/medium.php", "line": 30},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-HIGH-MYSQL",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/high.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli/source/high.php", "line": 11},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-HIGH-SQLITE",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/high.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli/source/high.php", "line": 31},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-SQLI-IMPOSSIBLE-MYSQL",
+      "expected": "safe",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/impossible.php", "line": 8},
+      "sink": {"file": "vulnerabilities/sqli/source/impossible.php", "line": 18},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-SQLI-IMPOSSIBLE-SQLITE",
+      "expected": "safe",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli/source/impossible.php", "line": 8},
+      "sink": {"file": "vulnerabilities/sqli/source/impossible.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-BLIND-LOW-MYSQL",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/low.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/low.php", "line": 13},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-BLIND-LOW-SQLITE",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/low.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/low.php", "line": 34},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-BLIND-MEDIUM-MYSQL",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/medium.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/medium.php", "line": 15},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-BLIND-MEDIUM-SQLITE",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/medium.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/medium.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-BLIND-HIGH-MYSQL",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/high.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/high.php", "line": 13},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SQLI-BLIND-HIGH-SQLITE",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/high.php", "line": 5},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/high.php", "line": 35},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-SQLI-BLIND-IMPOSSIBLE-MYSQL",
+      "expected": "safe",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/impossible.php", "line": 9},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/impossible.php", "line": 19},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-SQLI-BLIND-IMPOSSIBLE-SQLITE",
+      "expected": "safe",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "vulnerabilities/sqli_blind/source/impossible.php", "line": 9},
+      "sink": {"file": "vulnerabilities/sqli_blind/source/impossible.php", "line": 28},
+      "line_tolerance": 1
+    },
+
+    {
+      "truth_id": "DVWA-XSS-REFLECTED-LOW",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_r/source/low.php", "line": 8},
+      "sink": {"file": "vulnerabilities/xss_r/source/low.php", "line": 8},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-XSS-REFLECTED-MEDIUM",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_r/source/medium.php", "line": 8},
+      "sink": {"file": "vulnerabilities/xss_r/source/medium.php", "line": 11},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-XSS-REFLECTED-HIGH",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_r/source/high.php", "line": 8},
+      "sink": {"file": "vulnerabilities/xss_r/source/high.php", "line": 11},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-XSS-REFLECTED-IMPOSSIBLE",
+      "expected": "safe",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_r/source/impossible.php", "line": 9},
+      "sink": {"file": "vulnerabilities/xss_r/source/impossible.php", "line": 12},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-XSS-STORED-LOW-MESSAGE",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/low.php", "line": 5},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-XSS-STORED-LOW-NAME",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/low.php", "line": 6},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-SAFE-XSS-STORED-MEDIUM-MESSAGE",
+      "expected": "safe",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/medium.php", "line": 5},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-XSS-STORED-MEDIUM-NAME",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/medium.php", "line": 6},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-SAFE-XSS-STORED-HIGH-MESSAGE",
+      "expected": "safe",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/high.php", "line": 5},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-XSS-STORED-HIGH-NAME",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/high.php", "line": 6},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-SAFE-XSS-STORED-IMPOSSIBLE-MESSAGE",
+      "expected": "safe",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/impossible.php", "line": 8},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-SAFE-XSS-STORED-IMPOSSIBLE-NAME",
+      "expected": "safe",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_s/source/impossible.php", "line": 9},
+      "sink": {"file": "dvwa/includes/dvwaPage.inc.php", "line": 626},
+      "line_tolerance": 0
+    },
+    {
+      "truth_id": "DVWA-XSS-DOM-SHARED-RUNTIME-SINK",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/xss_d/index.php", "line": 52},
+      "sink": {"file": "vulnerabilities/xss_d/index.php", "line": 53},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-XSS-CSP-LOW-REMOTE-SCRIPT",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/csp/source/low.php", "line": 15},
+      "sink": {"file": "vulnerabilities/csp/source/low.php", "line": 15},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-XSS-CSP-MEDIUM-FIXED-NONCE",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/csp/source/medium.php", "line": 16},
+      "sink": {"file": "vulnerabilities/csp/source/medium.php", "line": 16},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-XSS-CSP-HIGH-JSONP-CALLBACK",
+      "expected": "vulnerable",
+      "taxonomy_id": "cross_site_scripting",
+      "source": {"file": "vulnerabilities/csp/source/jsonp.php", "line": 5},
+      "sink": {"file": "vulnerabilities/csp/source/jsonp.php", "line": 12},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-PATH-FI-LOW",
+      "expected": "vulnerable",
+      "taxonomy_id": "path_traversal",
+      "source": {"file": "vulnerabilities/fi/source/low.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-PATH-FI-MEDIUM",
+      "expected": "vulnerable",
+      "taxonomy_id": "path_traversal",
+      "source": {"file": "vulnerabilities/fi/source/medium.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-PATH-FI-HIGH",
+      "expected": "vulnerable",
+      "taxonomy_id": "path_traversal",
+      "source": {"file": "vulnerabilities/fi/source/high.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-PATH-FI-IMPOSSIBLE",
+      "expected": "safe",
+      "taxonomy_id": "path_traversal",
+      "source": {"file": "vulnerabilities/fi/source/impossible.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SSRF-FI-LOW-REMOTE-INCLUDE",
+      "expected": "vulnerable",
+      "taxonomy_id": "server_side_request_forgery",
+      "source": {"file": "vulnerabilities/fi/source/low.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SSRF-FI-MEDIUM-REMOTE-INCLUDE",
+      "expected": "vulnerable",
+      "taxonomy_id": "server_side_request_forgery",
+      "source": {"file": "vulnerabilities/fi/source/medium.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-SSRF-FI-HIGH",
+      "expected": "safe",
+      "taxonomy_id": "server_side_request_forgery",
+      "source": {"file": "vulnerabilities/fi/source/high.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    },
+    {
+      "truth_id": "DVWA-SAFE-SSRF-FI-IMPOSSIBLE",
+      "expected": "safe",
+      "taxonomy_id": "server_side_request_forgery",
+      "source": {"file": "vulnerabilities/fi/source/impossible.php", "line": 4},
+      "sink": {"file": "vulnerabilities/fi/index.php", "line": 36},
+      "line_tolerance": 1
+    }
+  ]
+}

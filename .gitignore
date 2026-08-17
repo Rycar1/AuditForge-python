@@ -1,0 +1,37 @@
+# Python bytecode and tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+*.whl
+
+# AuditForge local runtime state and secrets
+.auditforge_admin_token.json
+.auditforge_secret_key
+auditforge_runs.json
+triage_notes.json
+runs/
+uploads/
+uploaded_repos/
+*.log
+*.log.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

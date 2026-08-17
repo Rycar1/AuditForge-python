@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "name": "polyglot-language-vuln-lab-v1",
+  "findings": [
+    {
+      "truth_id": "TYPESCRIPT-EXPRESS-SQLI",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "app.ts", "line": 10},
+      "sink": {"file": "app.ts", "line": 6}
+    },
+    {
+      "truth_id": "JAVA-SPRING-SQLI",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "Controller.java", "line": 4},
+      "sink": {"file": "Controller.java", "line": 5}
+    },
+    {
+      "truth_id": "GO-GIN-SQLI",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "main.go", "line": 2},
+      "sink": {"file": "main.go", "line": 3}
+    },
+    {
+      "truth_id": "PHP-LARAVEL-SQLI",
+      "expected": "vulnerable",
+      "taxonomy_id": "sql_injection",
+      "source": {"file": "index.php", "line": 3},
+      "sink": {"file": "index.php", "line": 4}
+    }
+  ]
+}

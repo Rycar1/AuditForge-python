@@ -1,0 +1,42 @@
+{
+  "findings": [
+    {
+      "package": "org.apache.logging.log4j:log4j-core",
+      "ecosystem": "maven",
+      "installedVersion": "2.14.1",
+      "affectedRange": "< 2.15.0",
+      "cveIds": ["CVE-2021-44228"],
+      "severity": "critical",
+      "confidence": "high",
+      "title": "Log4j JNDI 远程代码执行风险",
+      "evidence": "log4j-core 2.14.1 位于 Log4Shell 公开受影响范围内，需要用权威 SCA 数据源复核并升级。",
+      "recommendation": "升级到当前官方维护版本，至少高于 2.17.x，并检查运行时是否禁用危险 JNDI 行为。",
+      "manifestFile": "pom.xml",
+      "references": ["https://nvd.nist.gov/vuln/detail/CVE-2021-44228"]
+    },
+    {
+      "package": "Django",
+      "ecosystem": "pypi",
+      "installedVersion": "1.11.0",
+      "affectedRange": "1.11.x early releases",
+      "cveIds": ["CVE-2019-19844"],
+      "severity": "high",
+      "confidence": "medium",
+      "title": "Django 旧版本安全修复缺失",
+      "evidence": "Django 1.11.0 属于很早的 1.11 系列版本，历史上存在多次安全修复，需复核项目是否暴露对应功能。",
+      "recommendation": "升级到受支持的 Django LTS 版本，并用 pip-audit/OSV 确认当前锁定版本的 CVE 列表。",
+      "manifestFile": "requirements.txt",
+      "references": ["https://www.djangoproject.com/weblog/"]
+    },
+    {
+      "package": "not-in-inventory",
+      "ecosystem": "pypi",
+      "installedVersion": "0.1",
+      "severity": "critical",
+      "confidence": "high",
+      "title": "应被过滤的幻觉依赖",
+      "evidence": "该依赖不在清单中。",
+      "recommendation": "不应进入结果。"
+    }
+  ]
+}

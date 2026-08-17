@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auditforge"
+version = "0.2.0"
+description = "Local-first white-box code audit platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2.2",
+  "coverage[toml]>=7.8",
+  "pytest>=8.3",
+  "pytest-cov>=6.1",
+  "ruff>=0.12",
+]
+
+[project.scripts]
+auditforge = "auditforge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["auditforge*"]
+
+[tool.setuptools.package-data]
+auditforge = ["*.cjs", "*.java", "*.go"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers"]
+
+[tool.coverage.run]
+branch = true
+source = ["auditforge"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 70
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 140
+extend-exclude = ["fixtures", "validation-labs", "workspace-smoke"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

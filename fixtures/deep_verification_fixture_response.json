@@ -1,0 +1,16 @@
+{
+  "verdict": "confirmed",
+  "confidence": "high",
+  "reason": "候选路径中的用户输入可在代码片段层面传播到危险表达式，沙箱用无害 marker 验证了字符串传播。",
+  "sandboxTests": [
+    {
+      "name": "无害 marker 传播验证",
+      "language": "python",
+      "code": "user_input = 'AF_MARKER'\nconstructed = 'sink:' + user_input\nassert 'AF_MARKER' in constructed\nresult_value = constructed",
+      "expected": "marker 出现在构造出的危险表达式中。"
+    }
+  ],
+  "limitations": [
+    "fixture 响应用于本地回归测试，不代表真实线上复现。"
+  ]
+}

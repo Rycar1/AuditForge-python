@@ -1,0 +1,38 @@
+services:
+  auditforge:
+    environment:
+      AUDITFORGE_VALIDATION_RUNNER_MODE: queue
+      AUDITFORGE_VALIDATION_QUEUE: /validation-queue
+      AUDITFORGE_VALIDATION_TIMEOUT: ${AUDITFORGE_VALIDATION_TIMEOUT:-90}
+    volumes:
+      - auditforge-validation-queue:/validation-queue
+
+  validation-runner:
+    image: auditforge:local
+    command:
+      - validation-runner
+      - --queue
+      - /validation-queue
+      - --concurrency
+      - ${AUDITFORGE_VALIDATION_CONCURRENCY:-2}
+    init: true
+    environment:
+      AUDITFORGE_VALIDATION_RUNNER_ID: ${AUDITFORGE_VALIDATION_RUNNER_ID:-compose-runner}
+    volumes:
+      - auditforge-validation-queue:/validation-queue
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+volumes:
+  auditforge-validation-queue:

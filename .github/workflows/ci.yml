@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m ruff check auditforge tests validation
+      - run: python -m ruff format --check auditforge tests validation
+      - run: python -m pytest --cov=auditforge --cov-report=term-missing --cov-fail-under=70
+      - run: python validation/benchmark_runner.py --repo fixtures/python_vuln_lab --truth benchmarks/python_vuln_lab.json --min-recall 0.95 --min-precision 0.75 --max-duplicates 2
+      - run: python -m build

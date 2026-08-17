@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "name": "python-vuln-lab-v1",
+  "language": "python",
+  "framework": "flask",
+  "findings": [
+    {"truth_id": "PY-HARDCODED-SECRET", "expected": "vulnerable", "taxonomy_id": "hardcoded_secret", "source": {"file": "app.py", "line": 20}, "sink": {"file": "app.py", "line": 20}},
+    {"truth_id": "PY-SQLI-SEARCH", "expected": "vulnerable", "taxonomy_id": "sql_injection", "source": {"file": "app.py", "line": 80}, "sink": {"file": "app.py", "line": 83}},
+    {"truth_id": "PY-SAFE-SQLI-PARAM", "expected": "safe", "taxonomy_id": "sql_injection", "source": {"file": "app.py", "line": 89}, "sink": {"file": "app.py", "line": 91}},
+    {"truth_id": "PY-SQLI-LOGIN-USER", "expected": "vulnerable", "taxonomy_id": "sql_injection", "source": {"file": "app.py", "line": 105}, "sink": {"file": "app.py", "line": 109}},
+    {"truth_id": "PY-SQLI-LOGIN-PASSWORD", "expected": "vulnerable", "taxonomy_id": "sql_injection", "source": {"file": "app.py", "line": 106}, "sink": {"file": "app.py", "line": 109}},
+    {"truth_id": "PY-SQLI-PROFILE", "expected": "vulnerable", "taxonomy_id": "sql_injection", "source": {"file": "app.py", "line": 119}, "sink": {"file": "app.py", "line": 122}},
+    {"truth_id": "PY-IDOR-PROFILE", "expected": "vulnerable", "taxonomy_id": "authorization_failure", "source": {"file": "app.py", "line": 119}, "sink": {"file": "app.py", "line": 122}},
+    {"truth_id": "PY-XSS-REFLECTED", "expected": "vulnerable", "taxonomy_id": "cross_site_scripting", "source": {"file": "app.py", "line": 128}, "sink": {"file": "app.py", "line": 129}},
+    {"truth_id": "PY-SAFE-XSS-ESCAPED", "expected": "safe", "taxonomy_id": "cross_site_scripting", "source": {"file": "app.py", "line": 134}, "sink": {"file": "app.py", "line": 135}},
+    {"truth_id": "PY-TEMPLATE-INJECTION", "expected": "vulnerable", "taxonomy_id": "cross_site_scripting", "source": {"file": "app.py", "line": 140}, "sink": {"file": "app.py", "line": 141}},
+    {"truth_id": "PY-SSRF", "expected": "vulnerable", "taxonomy_id": "server_side_request_forgery", "source": {"file": "app.py", "line": 146}, "sink": {"file": "app.py", "line": 147}},
+    {"truth_id": "PY-SAFE-SSRF-ALLOWLIST", "expected": "safe", "taxonomy_id": "server_side_request_forgery", "source": {"file": "app.py", "line": 153}, "sink": {"file": "app.py", "line": 156}},
+    {"truth_id": "PY-COMMAND-INJECTION", "expected": "vulnerable", "taxonomy_id": "command_injection", "source": {"file": "app.py", "line": 162}, "sink": {"file": "app.py", "line": 164}},
+    {"truth_id": "PY-COMMAND-OUTPUT-XSS", "expected": "vulnerable", "taxonomy_id": "cross_site_scripting", "source": {"file": "app.py", "line": 162}, "sink": {"file": "app.py", "line": 165}},
+    {"truth_id": "PY-PATH-TRAVERSAL", "expected": "vulnerable", "taxonomy_id": "path_traversal", "source": {"file": "app.py", "line": 170}, "sink": {"file": "app.py", "line": 172}},
+    {"truth_id": "PY-DESERIALIZATION", "expected": "vulnerable", "taxonomy_id": "unsafe_deserialization", "source": {"file": "app.py", "line": 177}, "sink": {"file": "app.py", "line": 178}},
+    {"truth_id": "PY-AUTHZ-ROLE", "expected": "vulnerable", "taxonomy_id": "authorization_failure", "source": {"file": "app.py", "line": 184}, "sink": {"file": "app.py", "line": 185}},
+    {"truth_id": "PY-INSECURE-DEBUG", "expected": "vulnerable", "taxonomy_id": "insecure_configuration", "source": {"file": "app.py", "line": 192}, "sink": {"file": "app.py", "line": 192}}
+  ]
+}
