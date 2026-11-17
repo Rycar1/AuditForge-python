@@ -34,7 +34,7 @@ from .utils import atomic_write_text, sha256_text
 CACHE_SCHEMA_VERSION = 1
 # Bump this when scanner extraction semantics change without a facts-model
 # schema change.  The dataclass-field signature below handles the latter.
-ANALYZER_REVISION = "source-facts-v6"
+ANALYZER_REVISION = "source-facts-v7"
 MAX_CACHE_ENTRY_BYTES = 8 * 1024 * 1024
 
 FACT_SECTIONS: dict[str, type[Any]] = {

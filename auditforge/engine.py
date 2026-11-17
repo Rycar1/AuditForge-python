@@ -12,7 +12,7 @@ from .dependency_scan import analyze_dependencies_with_llm, scan_dependency_mani
 from .direct_findings import generate_direct_candidates
 from .graph import build_graph
 from .graph_artifacts import write_graph_artifacts
-from .llm_candidates import LLMConfig, generate_llm_candidates, preflight_llm_config
+from .llm_candidates import LLMConfig, generate_llm_candidates, preflight_llm_config, triage_candidates_with_llm
 from .logging_config import contextual_logger, get_logger
 from .models import ScanResult, VerificationResult
 from .project_inventory import build_project_inventory, inventory_summary
@@ -96,11 +96,18 @@ def run_scan(
     emit_progress(progress_callback, "candidate", 76, f"确定性规则已生成 {len(candidates)} 条候选路径{direct_text}")
     llm_diagnostics = {"enabled": bool(llm_config.enabled), "preflight": taint_llm_preflight}
     if llm_config and llm_config.enabled:
-        emit_progress(progress_callback, "candidate", 84, "正在调用 LLM 补全语义候选路径")
-        llm_generated, llm_diagnostics = generate_llm_candidates(repo_path, facts, candidates, llm_config)
-        llm_diagnostics["preflight"] = taint_llm_preflight
-        candidates.extend(llm_generated)
-        emit_progress(progress_callback, "candidate", 94, f"LLM 补全完成，当前候选 {len(candidates)} 条")
+        if llm_config.discovery_enabled:
+            emit_progress(progress_callback, "candidate", 84, "正在调用 LLM 补全语义候选路径")
+            llm_generated, llm_diagnostics = generate_llm_candidates(repo_path, facts, candidates, llm_config)
+            llm_diagnostics["preflight"] = taint_llm_preflight
+            candidates.extend(llm_generated)
+            emit_progress(progress_callback, "candidate", 90, f"LLM 补全完成，当前候选 {len(candidates)} 条")
+        if llm_config.triage_enabled:
+            emit_progress(progress_callback, "candidate", 92, "正在调用 LLM 复核候选误报")
+            candidates, triage_diagnostics = triage_candidates_with_llm(repo_path, facts, candidates, llm_config)
+            llm_diagnostics = dict(llm_diagnostics)
+            llm_diagnostics["triage"] = triage_diagnostics
+            emit_progress(progress_callback, "candidate", 96, f"LLM 复核完成，保留候选 {len(candidates)} 条")
     emit_progress(progress_callback, "candidate", 100, f"候选路径生成完成，共 {len(candidates)} 条")
 
     dependency_inventory = []

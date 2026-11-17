@@ -16,6 +16,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from .java_ast_semantics import _WEAK_HASH_ALGOS, _is_weak_cipher_transform, _normalize_algo
 from .models import CodeAnchor, CodeFacts, FunctionFact, IndexedFile, SinkFact
 from .utils import normalize_path, sha256_text, stable_id
 
@@ -90,24 +91,31 @@ def augment_java_framework_facts(repo_path: Path, facts: CodeFacts) -> None:
                 implementations[_simple_type(interface)].add(_simple_type(match.group("name")))
 
     class_receiver_types = _class_receiver_types(fields_by_class)
+    local_receiver_types = _local_receiver_types(repo_path, java_functions, source_cache)
+    package_names = _java_package_names(repo_path, java_functions, source_cache)
+    repo_properties = _load_java_properties(repo_path)
+    property_sinks = _property_crypto_hash_sinks(facts, repo_properties, repo_path, source_cache)
     mapper_functions = _mapper_functions(java_functions, class_names, class_qualified_names)
     param_aliases = _parameter_aliases(repo_path, java_functions, source_cache)
     xml_files = _mapper_xml_files(repo_path)
     xml_sinks = _mybatis_sinks(xml_files, mapper_functions, param_aliases)
     annotation_sinks = _mybatis_annotation_sinks(java_functions, source_cache, param_aliases)
-    new_sinks = [*xml_sinks, *annotation_sinks]
+    new_sinks = [*xml_sinks, *annotation_sinks, *property_sinks]
     facts.sinks.extend(new_sinks)
     _add_xml_files(facts, repo_path, xml_files)
     diagnostics = facts.analysis_diagnostics.setdefault("java_framework", {})
     diagnostics.update(
         {
+            "receiver_types": local_receiver_types,
             "class_receiver_types": class_receiver_types,
             "implementation_types": [
                 {"interface": interface, "implementations": sorted(values)} for interface, values in sorted(implementations.items())
             ],
+            "package_names": package_names,
+            "properties": len(repo_properties),
             "mybatis": {
                 "xml_files": len(xml_files),
-                "dynamic_sql_sinks": len(new_sinks),
+                "dynamic_sql_sinks": len([*xml_sinks, *annotation_sinks]),
                 "annotation_dynamic_sql_sinks": len(annotation_sinks),
                 "ignored_bound_parameters": "#{...}",
             },
@@ -161,6 +169,233 @@ def _class_receiver_types(fields_by_class: dict[str, dict[str, str]]) -> list[di
         for class_id, fields in sorted(fields_by_class.items())
         if fields
     ]
+
+
+_NON_RECEIVER_TYPES = {
+    "boolean",
+    "byte",
+    "char",
+    "double",
+    "float",
+    "int",
+    "long",
+    "short",
+    "void",
+    "String",
+    "Object",
+    "Integer",
+    "Long",
+    "Double",
+    "Float",
+    "Boolean",
+    "Character",
+    "List",
+    "ArrayList",
+    "LinkedList",
+    "Map",
+    "HashMap",
+    "Set",
+    "HashSet",
+    "var",
+    "return",
+    "throw",
+    "new",
+    "package",
+    "import",
+    "case",
+    "default",
+    "else",
+}
+_LOCAL_VAR_DECL = re.compile(
+    r"^\s*(?:final\s+)?(?P<type>[A-Za-z_$][\w$.]*(?:\s*<[^;=(){}]+>)?(?:\s*\[\s*\])?)\s+"
+    r"(?P<name>[A-Za-z_$][\w$]*)\s*(?:=|;)"
+)
+_PARAM_DECL = re.compile(
+    r"(?:@[A-Za-z_$][\w$]*(?:\([^)]*\))?\s+)*(?:final\s+)?(?P<type>[A-Za-z_$][\w$.]*(?:\s*<[^>]+>)?)\s+(?P<name>[A-Za-z_$][\w$]*)\s*$"
+)
+_GET_PROPERTY = re.compile(r"\.getProperty\s*\(\s*\"([^\"]+)\"(?:\s*,\s*\"([^\"]*)\")?\s*\)")
+
+
+def _local_receiver_types(
+    repo_path: Path,
+    functions: list[FunctionFact],
+    source_cache: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Extract declared parameter and local variable receiver types for Java methods."""
+    records: list[dict[str, Any]] = []
+    for function in functions:
+        lines = _read_java_lines(repo_path, function.anchor.file, source_cache)
+        if not lines:
+            continue
+        found: dict[str, str] = {}
+        start = max(0, function.anchor.start_line - 1)
+        end = min(len(lines), function.anchor.end_line)
+        sig_end = min(end, start + 6)
+        sig_text = " ".join(lines[start:sig_end])
+        paren_open = sig_text.find("(")
+        paren_close = sig_text.find(")", paren_open + 1) if paren_open >= 0 else -1
+        if paren_open >= 0 and paren_close > paren_open:
+            raw_params = sig_text[paren_open + 1 : paren_close]
+            for param_item in raw_params.split(","):
+                pm = _PARAM_DECL.match(param_item.strip())
+                if pm:
+                    tname = _simple_type(pm.group("type"))
+                    vname = pm.group("name")
+                    if tname and tname not in _NON_RECEIVER_TYPES and vname in function.params:
+                        found[vname] = tname
+        for idx in range(start, end):
+            stripped = re.sub(r"//.*$", "", lines[idx]).strip()
+            lm = _LOCAL_VAR_DECL.match(stripped)
+            if not lm:
+                continue
+            tname = _simple_type(lm.group("type"))
+            vname = lm.group("name")
+            if tname and tname not in _NON_RECEIVER_TYPES:
+                found[vname] = tname
+        for vname, tname in sorted(found.items()):
+            records.append(
+                {
+                    "file": function.anchor.file,
+                    "function_id": function.id,
+                    "receiver": vname,
+                    "types": [tname],
+                    "reason": "typed_receiver",
+                }
+            )
+    return records
+
+
+def _java_package_names(
+    repo_path: Path,
+    functions: list[FunctionFact],
+    source_cache: dict[str, list[str]],
+) -> list[dict[str, str]]:
+    seen_files: set[str] = set()
+    output: list[dict[str, str]] = []
+    for function in functions:
+        if function.anchor.file in seen_files:
+            continue
+        seen_files.add(function.anchor.file)
+        lines = _read_java_lines(repo_path, function.anchor.file, source_cache)
+        if not lines:
+            continue
+        pkg = next((m.group(1) for line in lines[:40] if (m := re.match(r"\s*package\s+([\w.]+)\s*;", line))), "")
+        if pkg:
+            output.append({"file": function.anchor.file, "package": pkg})
+    return output
+
+
+def _load_java_properties(repo_path: Path) -> dict[str, str]:
+    """Load key-value entries from bounded Java ``.properties`` resource files."""
+    props: dict[str, str] = {}
+    root = repo_path.resolve(strict=True)
+    count = 0
+    for current, directories, files in os.walk(root, followlinks=False):
+        directories[:] = [name for name in sorted(directories) if name not in _SKIPPED_DIRECTORIES]
+        for name in sorted(files):
+            if count >= 500:
+                return props
+            if not name.lower().endswith(".properties"):
+                continue
+            candidate = Path(current) / name
+            try:
+                if candidate.is_symlink() or candidate.stat().st_size > MAX_MAPPER_XML_BYTES:
+                    continue
+                resolved = candidate.resolve(strict=True)
+                resolved.relative_to(root)
+                text = resolved.read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                continue
+            count += 1
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith(("#", "!")):
+                    continue
+                sep = "=" if "=" in line else (":" if ":" in line else "")
+                if not sep:
+                    continue
+                key, value = line.split(sep, 1)
+                k = key.strip()
+                if k:
+                    props[k] = value.strip()
+    return props
+
+
+def _property_crypto_hash_sinks(
+    facts: CodeFacts,
+    props: dict[str, str],
+    repo_path: Path,
+    source_cache: dict[str, list[str]],
+) -> list[SinkFact]:
+    """Resolve ``Properties.getProperty(...)`` arguments reaching ``MessageDigest`` / ``Cipher``."""
+    var_props: dict[tuple[str | None, str], tuple[int, str]] = {}
+    for flow in facts.data_flows:
+        if flow.kind != "assignment" or not flow.target or not flow.anchor.file.lower().endswith(".java"):
+            continue
+        match = _GET_PROPERTY.search(flow.expression)
+        if not match:
+            continue
+        prop_key = match.group(1)
+        default_val = match.group(2) if match.group(2) is not None else ""
+        resolved_val = props.get(prop_key, default_val)
+        if resolved_val:
+            var_props[(flow.enclosing_function_id, flow.target)] = (flow.anchor.start_line, resolved_val)
+
+    existing_sinks = {(normalize_path(s.anchor.file), s.anchor.start_line, s.kind) for s in facts.sinks}
+    output: list[SinkFact] = []
+    for call in facts.call_sites:
+        if not call.anchor.file.lower().endswith(".java"):
+            continue
+        callee = call.callee.strip()
+        is_digest = callee.endswith("MessageDigest.getInstance")
+        is_cipher = callee.endswith("Cipher.getInstance")
+        if not (is_digest or is_cipher):
+            continue
+        lines = _read_java_lines(repo_path, call.anchor.file, source_cache)
+        snippet = "\n".join(lines[call.anchor.start_line - 1 : call.anchor.end_line]) if lines else callee
+        resolved_val = ""
+        inline_match = _GET_PROPERTY.search(snippet)
+        if inline_match:
+            resolved_val = props.get(inline_match.group(1), inline_match.group(2) or "")
+        elif call.argument_sources and call.argument_sources[0]:
+            arg_var = call.argument_sources[0][0]
+            binding = var_props.get((call.enclosing_function_id, arg_var))
+            if binding and binding[0] <= call.anchor.start_line:
+                resolved_val = binding[1]
+        if not resolved_val:
+            continue
+        if is_digest and _normalize_algo(resolved_val) in _WEAK_HASH_ALGOS:
+            kind, vuln_class, taxonomy_id, cwe_ids = "weak_hash", "auth", "weak_cryptography", ["CWE-328", "CWE-327"]
+        elif is_cipher and _is_weak_cipher_transform(resolved_val):
+            kind, vuln_class, taxonomy_id, cwe_ids = "weak_cipher", "auth", "weak_cryptography", ["CWE-327"]
+        else:
+            continue
+        marker = (normalize_path(call.anchor.file), call.anchor.start_line, kind)
+        if marker in existing_sinks:
+            continue
+        existing_sinks.add(marker)
+        output.append(
+            SinkFact(
+                id=stable_id("sink", call.anchor.file, call.anchor.start_line, f"{kind}:prop:{resolved_val}"),
+                kind=kind,
+                vuln_class=vuln_class,  # type: ignore[arg-type]
+                expression=f"{snippet.strip()} /* property={resolved_val} */",
+                anchor=CodeAnchor(
+                    file=call.anchor.file,
+                    start_line=call.anchor.start_line,
+                    end_line=call.anchor.end_line,
+                    snippet_hash=sha256_text(snippet),
+                    symbol=kind,
+                ),
+                confidence="high",
+                variables=[],
+                enclosing_function_id=call.enclosing_function_id,
+                analysis_method="heuristic",
+                taxonomy_id=taxonomy_id,
+                cwe_ids=cwe_ids,
+            )
+        )
+    return output
 
 
 def _mapper_functions(

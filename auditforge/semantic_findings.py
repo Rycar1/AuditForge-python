@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .candidates import nearest_route_id
 from .models import CodeAnchor, CodeFacts, CodeGraph, SourceFact, TraceCandidate, TraceStep
 from .utils import normalize_path, sha256_text
 
@@ -26,7 +27,16 @@ SECRET_NAME = re.compile(
     re.I,
 )
 PLACEHOLDER_SECRET = re.compile(r"^(?:changeme|change-me|example|placeholder|replace-me|todo|test|dummy|secret|password)$", re.I)
-CRYPTO_CONTEXT = re.compile(r"password|passwd|token|secret|signature|session|credential|auth", re.I)
+CRYPTO_CONTEXT = re.compile(
+    r"password|passwd|token|secret|signature|session|credential|authenticat|authoriz|oauth|\bauth\b|auth_|_auth",
+    re.I,
+)
+_CRYPTO_WORDS = {"auth", "oauth", "authorize", "authorized", "authorization", "authenticate", "authentication"}
+_CRYPTO_WORD_SPLIT_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|$)|[A-Z]?[a-z]+|[0-9]+")
+
+
+def _has_crypto_context(text: str) -> bool:
+    return bool(CRYPTO_CONTEXT.search(text)) or any(part.lower() in _CRYPTO_WORDS for part in _CRYPTO_WORD_SPLIT_RE.findall(text))
 
 
 def generate_semantic_candidates(repo_path: Path, facts: CodeFacts, existing: list[TraceCandidate]) -> list[TraceCandidate]:
@@ -104,7 +114,90 @@ def generate_semantic_candidates(repo_path: Path, facts: CodeFacts, existing: li
             start_index=len(candidates) + 1,
         )
     )
+    candidates.extend(
+        generate_semantic_sink_candidates(
+            facts,
+            [*existing, *candidates],
+            start_index=len(candidates) + 1,
+        )
+    )
     return candidates
+
+
+_SEMANTIC_SINK_DEFAULTS: dict[str, tuple[str, list[str], str, str]] = {
+    "weak_hash": (
+        "weak_cryptography",
+        ["CWE-328", "CWE-327"],
+        "Cryptographic digest relies on a weak or broken hash algorithm.",
+        "Confirm whether cryptographic security is required; replace MD2/MD4/MD5/SHA-1 with SHA-256+ or Argon2id/bcrypt/scrypt for passwords.",
+    ),
+    "weak_cipher": (
+        "weak_cryptography",
+        ["CWE-327"],
+        "Cipher configuration uses a weak symmetric algorithm or insecure block mode.",
+        "Replace DES/3DES/RC4/ECB with authenticated encryption such as AES-GCM or ChaCha20-Poly1305.",
+    ),
+    "weak_random": (
+        "insecure_randomness",
+        ["CWE-330", "CWE-338"],
+        "Security-sensitive value uses a non-cryptographic pseudo-random generator.",
+        "Replace with a CSPRNG such as Python's secrets module or java.security.SecureRandom.",
+    ),
+    "insecure_cookie": (
+        "insecure_cookie",
+        ["CWE-614"],
+        "Cookie is configured without the Secure flag in an HTTP response.",
+        "Enable secure=True or cookie.setSecure(true) and transmit sensitive cookies only over HTTPS.",
+    ),
+}
+
+
+def generate_semantic_sink_candidates(
+    facts: CodeFacts,
+    existing: list[TraceCandidate],
+    *,
+    start_index: int,
+) -> list[TraceCandidate]:
+    """Materialize standalone semantic sink facts (weak crypto/PRNG/cookie flags) into candidates."""
+    seen_lines = {(item.taxonomy_id or "", normalize_path(item.sink.file), item.sink.start_line) for item in existing}
+    output: list[TraceCandidate] = []
+    relevant = [sink for sink in facts.sinks if sink.kind in _SEMANTIC_SINK_DEFAULTS]
+    relevant.sort(
+        key=lambda sink: (
+            normalize_path(sink.anchor.file),
+            sink.anchor.start_line,
+            sink.taxonomy_id or _SEMANTIC_SINK_DEFAULTS[sink.kind][0],
+            sink.kind,
+        )
+    )
+    for sink in relevant:
+        default_taxonomy, default_cwes, default_evidence, default_hint = _SEMANTIC_SINK_DEFAULTS[sink.kind]
+        taxonomy_id = sink.taxonomy_id or default_taxonomy
+        cwe_ids = list(sink.cwe_ids) if sink.cwe_ids else list(default_cwes)
+        file_path = normalize_path(sink.anchor.file)
+        line_key = (taxonomy_id, file_path, sink.anchor.start_line)
+        if line_key in seen_lines:
+            continue
+        seen_lines.add(line_key)
+        output.append(
+            TraceCandidate(
+                id=f"DIRECT-{sink.vuln_class.upper()}-{start_index + len(output):03d}",
+                vuln_class=sink.vuln_class,
+                source=sink.anchor,
+                sink=sink.anchor,
+                steps=[],
+                sanitizers=[],
+                blockers=[],
+                confidence=sink.confidence,
+                static_evidence=f"{default_evidence} Matched `{sink.expression}` at {file_path}:{sink.anchor.start_line}.",
+                verification_hint=default_hint,
+                route_id=nearest_route_id(facts, sink.anchor, sink.enclosing_function_id),
+                origin="deterministic",
+                taxonomy_id=taxonomy_id,
+                cwe_ids=cwe_ids,
+            )
+        )
+    return output
 
 
 def generate_php_include_candidates(
@@ -125,11 +218,7 @@ def generate_php_include_candidates(
     """
 
     repo_path = repo_path.resolve()
-    php_paths = {
-        normalize_path(item.path)
-        for item in facts.files
-        if item.language == "php" and not item.skipped_reason
-    }
+    php_paths = {normalize_path(item.path) for item in facts.files if item.language == "php" and not item.skipped_reason}
     included = _php_include_targets(repo_path, php_paths)
     if not included:
         return []
@@ -143,15 +232,11 @@ def generate_php_include_candidates(
     sinks = [
         item
         for item in facts.sinks
-        if item.anchor.file in included
-        and not item.enclosing_function_id
-        and item.kind in {"html_output", "file_path"}
-        and item.variables
+        if item.anchor.file in included and not item.enclosing_function_id and item.kind in {"html_output", "file_path"} and item.variables
     ]
     candidates: list[TraceCandidate] = []
     existing_keys = {
-        (item.taxonomy_id, item.source.file, item.source.start_line, item.sink.file, item.sink.start_line)
-        for item in existing
+        (item.taxonomy_id, item.source.file, item.source.start_line, item.sink.file, item.sink.start_line) for item in existing
     }
     seen: set[tuple[str, int, str, int, str]] = set()
     for sink in sinks:
@@ -168,9 +253,7 @@ def generate_php_include_candidates(
             if strict_allowlist:
                 continue
             classifications = (
-                [("cross_site_scripting", "xss", "CWE-79")]
-                if sink.kind == "html_output"
-                else [("path_traversal", "injection", "CWE-22")]
+                [("cross_site_scripting", "xss", "CWE-79")] if sink.kind == "html_output" else [("path_traversal", "injection", "CWE-22")]
             )
             if sink.kind == "file_path" and _php_include_can_fetch_remote(
                 repo_path,
@@ -197,9 +280,7 @@ def generate_php_include_candidates(
                                 kind="call",
                                 from_anchor=source.anchor,
                                 to_anchor=sink.anchor,
-                                explanation=(
-                                    f"Included PHP module exports tainted {source.variables[0]} into the loader's global scope."
-                                ),
+                                explanation=(f"Included PHP module exports tainted {source.variables[0]} into the loader's global scope."),
                                 confidence="medium",
                             )
                         ],
@@ -342,11 +423,7 @@ def generate_php_persistent_xss_candidates(
 
     from .candidates import build_trace_candidates
 
-    database_sources = {
-        (item.anchor.file, item.anchor.start_line): item
-        for item in facts.sources
-        if item.kind == "database_result"
-    }
+    database_sources = {(item.anchor.file, item.anchor.start_line): item for item in facts.sources if item.kind == "database_result"}
     output_by_table: dict[str, CodeAnchor] = {}
     for candidate in existing:
         if candidate.taxonomy_id != "cross_site_scripting":
@@ -359,13 +436,9 @@ def generate_php_persistent_xss_candidates(
     if not output_by_table:
         return []
 
-    source_by_anchor = {
-        (item.anchor.file, item.anchor.start_line, item.anchor.symbol): item
-        for item in facts.sources
-    }
+    source_by_anchor = {(item.anchor.file, item.anchor.start_line, item.anchor.symbol): item for item in facts.sources}
     existing_keys = {
-        (item.taxonomy_id, item.source.file, item.source.start_line, item.sink.file, item.sink.start_line)
-        for item in existing
+        (item.taxonomy_id, item.source.file, item.source.start_line, item.sink.file, item.sink.start_line) for item in existing
     }
     output: list[TraceCandidate] = []
     for raw_sink in facts.sinks:
@@ -872,7 +945,11 @@ class _SemanticVisitor(ast.NodeVisitor):
         name = qualified_name(node.func).lower()
         call_text = ast.get_source_segment(self.source, node) or name
         lowered = call_text.lower()
-        if name in {"hashlib.md5", "hashlib.sha1"} and CRYPTO_CONTEXT.search(parent_statement_text(self.source, node)):
+        if (
+            name in {"hashlib.md5", "hashlib.sha1"}
+            and keyword_constant(node, "usedforsecurity") is not False
+            and _has_crypto_context(parent_statement_text(self.source, node))
+        ):
             self.matches.append(
                 SemanticMatch(
                     "weak_cryptography",
@@ -885,7 +962,7 @@ class _SemanticVisitor(ast.NodeVisitor):
                     "确认用途；密码改用 Argon2id/bcrypt/scrypt，签名或完整性校验改用受支持的 HMAC/现代算法。",
                 )
             )
-        if name in {"random.random", "random.randint", "random.randrange", "random.choice"} and CRYPTO_CONTEXT.search(
+        if name in {"random.random", "random.randint", "random.randrange", "random.choice"} and _has_crypto_context(
             parent_statement_text(self.source, node)
         ):
             self.matches.append(

@@ -2610,9 +2610,9 @@ def llm_config_from_test_payload(workspace: Path, payload: dict) -> LLMConfig:
     api_key_env = configured_key_env if configured_key_env in allowed_test_api_key_envs() else "AUDITFORGE_LLM_API_KEY"
     response_file = saved_config.response_file
     try:
-        max_candidates = int(incoming_connection.get("max_candidates") or saved_config.max_candidates or 36)
+        max_candidates = int(incoming_connection.get("max_candidates") or saved_config.max_candidates or 200)
     except (TypeError, ValueError):
-        max_candidates = 36
+        max_candidates = 200
     try:
         timeout_seconds = int(incoming_connection.get("timeout_seconds") or saved_config.timeout_seconds or 60)
     except (TypeError, ValueError):
@@ -2630,7 +2630,7 @@ def llm_config_from_test_payload(workspace: Path, payload: dict) -> LLMConfig:
         api_key_env=api_key_env,
         response_file=response_file,
         timeout_seconds=max(10, min(600, timeout_seconds)),
-        max_candidates=max(1, min(50, max_candidates)),
+        max_candidates=max(1, min(500, max_candidates)),
         concurrency=max(1, min(12, concurrency)),
         system_prompt=str(incoming_prompt.get("system_prompt") or saved_config.system_prompt or "")[:12000] or None,
         user_prompt=str(incoming_prompt.get("user_prompt") or saved_config.user_prompt or "")[:12000] or None,

@@ -22,6 +22,8 @@ dist/
 # AuditForge local runtime state and secrets
 .auditforge_admin_token.json
 .auditforge_secret_key
+auditforge_settings.json
+.auditforge_settings.json.lock
 auditforge_runs.json
 triage_notes.json
 runs/

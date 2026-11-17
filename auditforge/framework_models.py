@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .models import CodeAnchor, CodeFacts, FunctionFact, SanitizerFact, SinkFact, SourceFact
 from .utils import normalize_path, sha256_text, stable_id
@@ -57,6 +58,13 @@ def augment_framework_facts(repo_path: Path, facts: CodeFacts) -> None:
         },
     )
     functions = {(normalize_path(item.anchor.file), item.anchor.start_line, item.name): item for item in facts.functions}
+    known_classes = {
+        name
+        for item in facts.classes
+        if normalize_path(item.anchor.file).endswith(".py")
+        for name in (item.name, item.qualified_name)
+        if name
+    }
     for indexed in facts.files:
         if indexed.language != "python" or indexed.skipped_reason or indexed.parsed_by != "ast":
             continue
@@ -72,11 +80,17 @@ def augment_framework_facts(repo_path: Path, facts: CodeFacts) -> None:
             file=normalize_path(indexed.path),
             content=content,
             functions=functions,
+            known_classes=known_classes,
         )
         collector.visit(tree)
         facts.sources.extend(collector.sources)
         facts.sinks.extend(collector.sinks)
         facts.sanitizers.extend(collector.sanitizers)
+        if collector.receiver_types:
+            python_symbols = facts.analysis_diagnostics.setdefault("python_symbols", {"receiver_types": []})
+            receivers = python_symbols.setdefault("receiver_types", [])
+            if isinstance(receivers, list):
+                receivers.extend(collector.receiver_types)
         diagnostics["files"] += 1
         diagnostics["sources"] += len(collector.sources)
         diagnostics["sinks"] += len(collector.sinks)
@@ -84,17 +98,27 @@ def augment_framework_facts(repo_path: Path, facts: CodeFacts) -> None:
 
 
 class _FrameworkFactCollector(ast.NodeVisitor):
-    def __init__(self, *, file: str, content: str, functions: dict[tuple[str, int, str], FunctionFact]) -> None:
+    def __init__(
+        self,
+        *,
+        file: str,
+        content: str,
+        functions: dict[tuple[str, int, str], FunctionFact],
+        known_classes: set[str] | None = None,
+    ) -> None:
         self.file = file
         self.lines = content.splitlines()
         self.functions = functions
+        self.known_classes = known_classes or set()
         self.parents: dict[ast.AST, ast.AST] = {}
         self.aliases: dict[str, str] = {}
         self.sources: list[SourceFact] = []
         self.sinks: list[SinkFact] = []
         self.sanitizers: list[SanitizerFact] = []
+        self.receiver_types: list[dict[str, Any]] = []
         self._function_stack: list[FunctionFact | None] = []
         self._class_guard_stack: list[bool] = []
+        self._local_types_stack: list[dict[str, list[str]]] = []
         self._fastapi_dependency_profiles: dict[str, set[str]] = {}
 
     @property
@@ -128,6 +152,11 @@ class _FrameworkFactCollector(ast.NodeVisitor):
     def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         function = self.functions.get((self.file, node.lineno, node.name))
         self._function_stack.append(function)
+        local_types: dict[str, list[str]] = {}
+        for parameter, _default, annotation in _function_parameters(node):
+            if annotation is not None and (type_name := _annotation_type_name(annotation, self.aliases)):
+                local_types[parameter.arg] = [type_name]
+        self._local_types_stack.append(local_types)
         if function and (self._class_guard_stack[-1] if self._class_guard_stack else False):
             self._add_guard(node, "class permission policy")
         if function and (
@@ -138,7 +167,34 @@ class _FrameworkFactCollector(ast.NodeVisitor):
         if function:
             self._add_fastapi_dependency_sources(node, function)
         self.generic_visit(node)
+        popped_types = self._local_types_stack.pop()
+        if function and popped_types:
+            for receiver, types in popped_types.items():
+                self.receiver_types.append(
+                    {
+                        "file": self.file,
+                        "function_id": function.id,
+                        "receiver": receiver,
+                        "types": types,
+                        "language": "python",
+                    }
+                )
         self._function_stack.pop()
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if self._local_types_stack and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if isinstance(node.value, ast.Call) and (ctor := _constructor_type_name(node.value, self.aliases, self.known_classes)):
+                self._local_types_stack[-1][node.targets[0].id] = [ctor]
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if self._local_types_stack and isinstance(node.target, ast.Name):
+            type_name = _annotation_type_name(node.annotation, self.aliases)
+            if not type_name and isinstance(node.value, ast.Call):
+                type_name = _constructor_type_name(node.value, self.aliases, self.known_classes)
+            if type_name:
+                self._local_types_stack[-1][node.target.id] = [type_name]
+        self.generic_visit(node)
 
     def _add_fastapi_dependency_sources(
         self,
@@ -329,6 +385,60 @@ def _resolved_name(node: ast.AST, aliases: dict[str, str]) -> str:
     if not resolved:
         return raw
     return f"{resolved}.{rest}" if dot else resolved
+
+
+_BUILTIN_TYPE_NAMES = {
+    "str",
+    "int",
+    "float",
+    "bool",
+    "bytes",
+    "bytearray",
+    "list",
+    "dict",
+    "set",
+    "frozenset",
+    "tuple",
+    "object",
+    "none",
+    "any",
+    "optional",
+    "union",
+    "callable",
+    "sequence",
+    "mapping",
+    "iterable",
+    "iterator",
+    "generator",
+    "coroutine",
+}
+
+
+def _constructor_type_name(call: ast.Call, aliases: dict[str, str], known_classes: set[str] | None = None) -> str:
+    name = _resolved_name(call.func, aliases)
+    tail = name.rsplit(".", 1)[-1]
+    if not tail or tail.lower() in _BUILTIN_TYPE_NAMES:
+        return ""
+    if tail[0].isupper() or (known_classes and (tail in known_classes or name in known_classes)):
+        return name
+    return ""
+
+
+def _annotation_type_name(node: ast.AST, aliases: dict[str, str]) -> str:
+    if isinstance(node, ast.Subscript):
+        base = _resolved_name(node.value, aliases).rsplit(".", 1)[-1]
+        if base in {"Optional", "Annotated"}:
+            inner = node.slice.elts[0] if isinstance(node.slice, ast.Tuple) and node.slice.elts else node.slice
+            return _annotation_type_name(inner, aliases)
+        return ""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        tail = node.value.strip().rsplit(".", 1)[-1]
+        return node.value.strip() if tail and tail.lower() not in _BUILTIN_TYPE_NAMES else ""
+    name = _resolved_name(node, aliases)
+    tail = name.rsplit(".", 1)[-1]
+    if not name or not tail or tail.lower() in _BUILTIN_TYPE_NAMES:
+        return ""
+    return name
 
 
 def _access_path(node: ast.AST) -> str:

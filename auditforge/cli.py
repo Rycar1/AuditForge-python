@@ -36,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--dependency-scan", action="store_true", help="启用 OSV 历史漏洞库匹配和可选 LLM 依赖解释")
     scan.add_argument("--use-workspace-settings", action="store_true", help="读取输出工作区保存的 LLM 设置")
     scan.add_argument("--llm-candidates", action="store_true", help="启用 LLM 候选路径补全")
+    scan.add_argument("--llm-triage", action="store_true", help="启用 LLM 候选误报复核")
+    scan.add_argument("--llm-timeout", type=int, default=60, help="单次 LLM 请求超时秒数")
     scan.add_argument(
         "--llm-provider",
         choices=["openai-compatible", "fixture"],
@@ -46,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     scan.add_argument("--llm-base-url", default=DEFAULT_BASE_URL, help="OpenAI-compatible API base URL")
     scan.add_argument("--llm-api-key-env", default="AUDITFORGE_LLM_API_KEY", help="读取 API key 的环境变量名")
     scan.add_argument("--llm-response-file", help="fixture provider 的 JSON 响应文件")
-    scan.add_argument("--llm-max-candidates", type=int, default=36, help="每次最多接收的 LLM 候选数")
+    scan.add_argument("--llm-max-candidates", type=int, default=200, help="每次最多接收的 LLM 候选数")
     scan.add_argument(
         "--llm-concurrency",
         type=int,
@@ -276,14 +278,17 @@ def build_llm_config(args: argparse.Namespace, workspace: Path, profile: str = "
         base_url=args.llm_base_url,
         api_key_env=args.llm_api_key_env,
         response_file=args.llm_response_file,
+        timeout_seconds=max(10, int(getattr(args, "llm_timeout", 60))),
         max_candidates=args.llm_max_candidates,
         concurrency=max(1, min(12, args.llm_concurrency)),
+        discovery_enabled=bool(getattr(args, "llm_candidates", False)) if profile == "taint" else True,
+        triage_enabled=bool(getattr(args, "llm_triage", False)) if profile == "taint" else False,
     )
 
 
 def llm_profile_requested(args: argparse.Namespace, profile: str) -> bool:
     if profile == "taint":
-        return bool(getattr(args, "llm_candidates", False))
+        return bool(getattr(args, "llm_candidates", False) or getattr(args, "llm_triage", False))
     if profile == "deep":
         return "deep" in getattr(args, "verify", "none")
     if profile == "dependency":

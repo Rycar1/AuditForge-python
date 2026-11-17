@@ -55,6 +55,8 @@ class _FlowEdge:
     explanation: str
     confidence: Confidence
     flow: DataFlowFact | None = None
+    call_id: str | None = None
+    call_direction: str = ""
 
 
 @dataclass(frozen=True)
@@ -200,7 +202,7 @@ def build_trace_candidates(
     """
 
     candidates: list[TraceCandidate] = []
-    seen: set[tuple[VulnClass, str, int, str, int]] = set()
+    seen: set[tuple[VulnClass, str, str, int, str, int]] = set()
     functions_by_file: dict[str, list[FunctionFact]] = defaultdict(list)
     functions_by_id: dict[str, FunctionFact] = {}
     for function in facts.functions:
@@ -216,6 +218,16 @@ def build_trace_candidates(
         scope_flows[_fact_scope(flow, functions_by_file, functions_by_id)].append(flow)
     for sanitizer in facts.sanitizers:
         scope_sanitizers[_fact_scope(sanitizer, functions_by_file, functions_by_id)].append(sanitizer)
+    calls = _effective_calls(facts)
+    resolver = CallResolver(facts.functions, facts.imports, resolution_models_from_diagnostics(facts.analysis_diagnostics))
+    resolved = {call.id: item for call in calls if (item := resolver.resolve_with_reason(call)) is not None}
+    resolved_calls = {call_id: item[0] for call_id, item in resolved.items()}
+    callees_with_returns = {flow.enclosing_function_id for flow in facts.data_flows if flow.kind == "return" and flow.enclosing_function_id}
+    internal_calls_by_scope: dict[tuple[str, str | None], list[CallSiteFact]] = defaultdict(list)
+    for call in calls:
+        callee = resolved_calls.get(call.id)
+        if callee is not None and callee.id in callees_with_returns:
+            internal_calls_by_scope[_fact_scope(call, functions_by_file, functions_by_id)].append(call)
     aliases_by_scope = _build_aliases(facts, functions_by_file)
 
     def report(percent: int, detail: str) -> None:
@@ -227,7 +239,10 @@ def build_trace_candidates(
     for sink_index, sink in enumerate(ordered_sinks, start=1):
         scope = _fact_scope(sink, functions_by_file, functions_by_id)
         sources = sorted(scope_sources.get(scope, []), key=lambda item: _anchor_order(item.anchor))
-        flows = scope_flows.get(scope, [])
+        flows = [
+            replace(flow, sources=_effective_flow_sources(flow, scope, internal_calls_by_scope, resolved_calls, keep_call_tokens=False))
+            for flow in scope_flows.get(scope, [])
+        ]
         sanitizers = scope_sanitizers.get(scope, [])
         for source in sources:
             if _after(source.anchor, sink.anchor):
@@ -342,10 +357,7 @@ def _trace_source_to_sink(
     unsanitized = {
         variable
         for variable in consumed
-        if not any(
-            _canonical_sanitizes_variable(item, variable, sink, scope, aliases_by_scope, source.anchor)
-            for item in sanitizers
-        )
+        if not any(_canonical_sanitizes_variable(item, variable, sink, scope, aliases_by_scope, source.anchor) for item in sanitizers)
     }
     if not unsanitized:
         return None
@@ -400,7 +412,7 @@ def _propagate(
     for flow in ordered:
         if flow.anchor.file != endpoint.file:
             continue
-        if seed_anchor.file == flow.anchor.file and _after(seed_anchor, flow.anchor):
+        if seed_anchor.file == flow.anchor.file and _after(seed_anchor, flow.anchor) and not _contains(flow.anchor, seed_anchor):
             continue
         if _after(flow.anchor, endpoint):
             continue
@@ -414,14 +426,15 @@ def _propagate(
             initial_sanitizers = [
                 sanitizer
                 for sanitizer in sanitizers
-                if any(
+                if not _is_guard_region(sanitizer)
+                and any(
                     _paths_intersect(
                         target,
                         _canonical_write_path(scope, variable, aliases_by_scope, sanitizer.anchor),
                     )
                     for variable in sanitizer.variables
                 )
-                and sanitizer.anchor.start_line == flow.anchor.start_line
+                and (_contains(flow.anchor, sanitizer.anchor) or sanitizer.anchor.start_line == flow.anchor.start_line)
                 and _sanitizer_applies(sanitizer, sink)
             ]
             if initial_sanitizers:
@@ -447,16 +460,21 @@ def _propagate(
             for sanitizer in sanitizers
             if (
                 (
-                    any(
+                    not _is_guard_region(sanitizer)
+                    and any(
                         _paths_intersect(
                             target,
                             _canonical_write_path(scope, variable, aliases_by_scope, sanitizer.anchor),
                         )
                         for variable in sanitizer.variables
                     )
-                    and sanitizer.anchor.start_line == flow.anchor.start_line
+                    and (_contains(flow.anchor, sanitizer.anchor) or sanitizer.anchor.start_line == flow.anchor.start_line)
                 )
-                or (_is_guard_region(sanitizer) and _contains(sanitizer.anchor, flow.anchor))
+                or (
+                    _is_guard_region(sanitizer)
+                    and seed_anchor.start_line < sanitizer.anchor.start_line
+                    and _contains(sanitizer.anchor, flow.anchor)
+                )
             )
             and any(
                 _paths_intersect(
@@ -469,10 +487,24 @@ def _propagate(
             and _sanitizer_applies(sanitizer, sink)
         ]
         if effective:
-            reached.discard(target)
-            anchors.pop(target, None)
+            unsanitized_inputs = {
+                tainted_name
+                for tainted_name in tainted_inputs
+                if not any(
+                    _paths_intersect(
+                        _canonical_path(scope, input_name, aliases_by_scope, item.anchor),
+                        tainted_name,
+                    )
+                    for item in effective
+                    for input_name in item.input_variables
+                )
+            }
             related.extend(item for item in effective if item not in related)
-            continue
+            if not unsanitized_inputs:
+                reached.discard(target)
+                anchors.pop(target, None)
+                continue
+            tainted_inputs = unsanitized_inputs
         source_variable = sorted(tainted_inputs)[0]
         from_anchor = anchors.get(source_variable, seed_anchor)
         reached.add(target)
@@ -497,7 +529,7 @@ def _build_interprocedural_candidates(
     scope_flows: dict[tuple[str, str | None], list[DataFlowFact]],
     scope_sanitizers: dict[tuple[str, str | None], list[SanitizerFact]],
     candidates: list[TraceCandidate],
-    seen: set[tuple[VulnClass, str, int, str, int]],
+    seen: set[tuple[VulnClass, str, str, int, str, int]],
     progress_callback: Callable[[int, str], None] | None = None,
 ) -> None:
     del scope_sources, scope_flows  # Interprocedural edges consume repository facts directly.
@@ -751,7 +783,12 @@ def _canonical_write_path(
 
 def _call_bindings(call: CallSiteFact, callee: FunctionFact) -> list[tuple[int, str]]:
     bindings: list[tuple[int, str]] = []
-    offset = 1 if callee.class_id and callee.params and callee.params[0] in {"self", "cls"} else 0
+    has_implicit_receiver = bool(callee.class_id and callee.params and callee.params[0] in {"self", "cls"})
+    offset = 1 if has_implicit_receiver else 0
+    if has_implicit_receiver and callee.params[0] == "self" and "." in call.callee and len(call.argument_sources) < len(callee.params):
+        receiver = call.callee.rsplit(".", 1)[0]
+        if receiver and not receiver.startswith("@") and receiver not in {"self", "cls"}:
+            bindings.append((0, receiver))
     for index, variables in enumerate(call.argument_sources):
         param_index = index + offset
         if param_index >= len(callee.params):
@@ -830,6 +867,46 @@ def _build_parameter_effects(
     return effects
 
 
+def _effective_flow_sources(
+    flow: DataFlowFact,
+    scope: tuple[str, str | None],
+    internal_calls_by_scope: dict[tuple[str, str | None], list[CallSiteFact]],
+    resolved_calls: dict[str, FunctionFact],
+    *,
+    keep_call_tokens: bool = True,
+) -> list[str]:
+    """Strip argument-shortcut fallback variables for calls resolved in the repository."""
+
+    sources = list(flow.sources)
+    has_synthetic_tokens = any(name.startswith("@call:") for name in sources)
+    for call in internal_calls_by_scope.get(scope, []):
+        token = _call_token(call)
+        if not _contains(flow.anchor, call.anchor):
+            continue
+        if token not in sources:
+            if has_synthetic_tokens:
+                continue
+            method_name = call.callee.rsplit(".", 1)[-1]
+            if flow.expression and f"{method_name}(" not in flow.expression and call.callee not in flow.expression:
+                continue
+            if keep_call_tokens:
+                sources.append(token)
+        arguments = {name for values in [*call.argument_sources, *call.keyword_sources.values()] for name in values}
+        callee = resolved_calls[call.id]
+        if (
+            callee.class_id
+            and callee.params
+            and callee.params[0] == "self"
+            and "." in call.callee
+            and len(call.argument_sources) < len(callee.params)
+        ):
+            receiver = call.callee.rsplit(".", 1)[0]
+            if receiver and not receiver.startswith("@"):
+                arguments.add(receiver)
+        sources = [name for name in sources if name == token or name not in arguments]
+    return sources
+
+
 def _interprocedural_edges(
     facts: CodeFacts,
     functions_by_file: dict[str, list[FunctionFact]],
@@ -849,15 +926,7 @@ def _interprocedural_edges(
         if flow.kind == "call_argument":
             continue
         scope = _fact_scope(flow, functions_by_file)
-        sources = list(flow.sources)
-        # For a resolved call, do not shortcut argument -> assignment/return.  The
-        # synthetic call result is linked from the callee's return summary below.
-        for call in internal_calls_by_scope.get(scope, []):
-            token = _call_token(call)
-            if token not in sources or not _contains(flow.anchor, call.anchor):
-                continue
-            arguments = {name for values in [*call.argument_sources, *call.keyword_sources.values()] for name in values}
-            sources = [name for name in sources if name == token or name not in arguments]
+        sources = _effective_flow_sources(flow, scope, internal_calls_by_scope, resolved_calls, keep_call_tokens=True)
         if flow.kind == "assignment" and flow.target:
             target = _FlowState(scope, _canonical_write_path(scope, flow.target, aliases_by_scope, flow.anchor))
         elif flow.kind == "return" and scope[1]:
@@ -906,6 +975,8 @@ def _interprocedural_edges(
                         else f"Tainted {variable} is passed to {callee.qualified_name or callee.name} as {param}."
                     ),
                     confidence="high" if call.analysis_method == callee.analysis_method == "ast" else "medium",
+                    call_id=call.id,
+                    call_direction="enter",
                 )
             )
         for param_index, suffix in parameter_effects.get(callee.id, set()):
@@ -927,6 +998,8 @@ def _interprocedural_edges(
                             f"through parameter {param} into {caller_path}."
                         ),
                         confidence="high" if call.analysis_method == callee.analysis_method == "ast" else "medium",
+                        call_id=call.id,
+                        call_direction="exit",
                     )
                 )
         edges.append(
@@ -938,6 +1011,8 @@ def _interprocedural_edges(
                 anchor=call.anchor,
                 explanation=f"Tainted return value from {callee.qualified_name or callee.name} flows back to its caller.",
                 confidence="high" if call.analysis_method == callee.analysis_method == "ast" else "medium",
+                call_id=call.id,
+                call_direction="exit",
             )
         )
     return edges
@@ -961,21 +1036,22 @@ def _trace_source_to_sink_kind(
     """
 
     traces: dict[str, tuple[list[TraceStep], list[SanitizerFact]]] = {}
-    records: dict[_FlowState, _TraceRecord] = {}
-    queue: deque[_FlowState] = deque()
+    records: dict[tuple[_FlowState, tuple[str, ...]], _TraceRecord] = {}
+    queue: deque[tuple[_FlowState, tuple[str, ...]]] = deque()
     for variable in source.variables:
         state = _FlowState(source_scope, _canonical_path(source_scope, variable, aliases_by_scope, source.anchor))
         if not flow_index.can_reach_sink_kind(state, sink_kind):
             continue
         record = _TraceRecord(source.anchor, source_scope, [], [])
-        existing = records.get(state)
+        stack: tuple[str, ...] = ()
+        existing = records.get((state, stack))
         if existing is None or _record_is_earlier(record, existing, state):
-            records[state] = record
-            queue.append(state)
+            records[(state, stack)] = record
+            queue.append((state, stack))
 
     while queue:
-        state = queue.popleft()
-        record = records[state]
+        state, call_stack = queue.popleft()
+        record = records[(state, call_stack)]
         for sink_state in flow_index.sinks_for(state, sink_kind):
             sink = sink_state.sink
             if sink.id in traces:
@@ -1013,6 +1089,17 @@ def _trace_source_to_sink_kind(
         for edge in flow_index.edges_from(state):
             if not flow_index.can_reach_sink_kind(edge.target, sink_kind):
                 continue
+            if edge.call_direction == "enter" and edge.call_id:
+                next_stack = (*call_stack[-5:], edge.call_id)
+            elif edge.call_direction == "exit" and edge.call_id:
+                if call_stack:
+                    if edge.call_id != call_stack[-1]:
+                        continue
+                    next_stack = call_stack[:-1]
+                else:
+                    next_stack = ()
+            else:
+                next_stack = call_stack
             if not _edge_is_forward(state, record, edge, loop_regions_by_scope):
                 continue
             if edge.execution_scope == state.scope and _ssa_overwritten_between(
@@ -1048,11 +1135,12 @@ def _trace_source_to_sink_kind(
                 ],
                 related_sanitizers=record.related_sanitizers,
             )
-            existing = records.get(edge.target)
+            key = (edge.target, next_stack)
+            existing = records.get(key)
             if existing is not None and not _record_is_earlier(next_record, existing, edge.target):
                 continue
-            records[edge.target] = next_record
-            queue.append(edge.target)
+            records[key] = next_record
+            queue.append(key)
     return traces
 
 
@@ -1159,6 +1247,27 @@ def _ssa_overwritten_between(
     return False
 
 
+def _call_token_matches_sanitizer(input_variable: str, sanitizer: SanitizerFact) -> bool:
+    if not input_variable.startswith("@call:"):
+        return False
+    parts = input_variable.rsplit(":", 2)
+    if len(parts) != 3:
+        return False
+    callee = parts[0][len("@call:") :]
+    try:
+        call_line = int(parts[1])
+        call_col = int(parts[2])
+    except ValueError:
+        return False
+    anchor = sanitizer.anchor
+    if anchor.start_col is not None and anchor.end_col is not None:
+        return (anchor.start_line, anchor.start_col) <= (call_line, call_col) <= (anchor.end_line, anchor.end_col)
+    if not (anchor.start_line <= call_line <= anchor.end_line):
+        return False
+    callee_leaf = callee.rsplit(".", 1)[-1].lower()
+    return bool(callee_leaf and callee_leaf in sanitizer.expression.lower())
+
+
 def _edge_sanitizers(
     edge: _FlowEdge,
     input_variable: str,
@@ -1166,30 +1275,36 @@ def _edge_sanitizers(
     sanitizers: list[SanitizerFact],
     aliases_by_scope: _AliasesByScope,
 ) -> list[SanitizerFact]:
-    if edge.flow is None or edge.flow.kind != "assignment":
+    if edge.flow is None or edge.flow.kind not in {"assignment", "return"}:
         return []
     return [
         sanitizer
         for sanitizer in sanitizers
         if (
             (
-                sanitizer.anchor.start_line == edge.anchor.start_line
-                and any(
-                    _paths_intersect(
-                        edge.target.variable,
-                        _canonical_path(edge.target.scope, variable, aliases_by_scope, sanitizer.anchor),
+                (sanitizer.anchor.start_line == edge.anchor.start_line or _contains(edge.anchor, sanitizer.anchor))
+                and (
+                    edge.flow.kind == "return"
+                    or any(
+                        _paths_intersect(
+                            edge.target.variable,
+                            _canonical_path(edge.target.scope, variable, aliases_by_scope, sanitizer.anchor),
+                        )
+                        for variable in sanitizer.variables
                     )
-                    for variable in sanitizer.variables
                 )
             )
             or (_is_guard_region(sanitizer) and _contains(sanitizer.anchor, edge.anchor))
         )
-        and any(
-            _paths_intersect(
-                input_variable,
-                _canonical_path(edge.source.scope, variable, aliases_by_scope, sanitizer.anchor),
+        and (
+            _call_token_matches_sanitizer(input_variable, sanitizer)
+            or any(
+                _paths_intersect(
+                    input_variable,
+                    _canonical_path(edge.source.scope, variable, aliases_by_scope, sanitizer.anchor),
+                )
+                for variable in sanitizer.input_variables
             )
-            for variable in sanitizer.input_variables
         )
         and _sanitizer_applies_to_kind(sanitizer, sink_kind)
     ]
@@ -1395,7 +1510,7 @@ def _make_candidate(
 def _append_candidate(
     candidate: TraceCandidate,
     candidates: list[TraceCandidate],
-    seen: set[tuple[VulnClass, str, int, str, int]],
+    seen: set[tuple[VulnClass, str, str, int, str, int]],
 ) -> None:
     key = _candidate_key(candidate)
     if key not in seen:
@@ -1403,8 +1518,15 @@ def _append_candidate(
         candidates.append(candidate)
 
 
-def _candidate_key(candidate: TraceCandidate) -> tuple[VulnClass, str, int, str, int]:
-    return candidate.vuln_class, candidate.source.file, candidate.source.start_line, candidate.sink.file, candidate.sink.start_line
+def _candidate_key(candidate: TraceCandidate) -> tuple[VulnClass, str, str, int, str, int]:
+    return (
+        candidate.vuln_class,
+        candidate.taxonomy_id or "",
+        candidate.source.file,
+        candidate.source.start_line,
+        candidate.sink.file,
+        candidate.sink.start_line,
+    )
 
 
 def nearest_route_id(facts: CodeFacts, anchor: CodeAnchor, scope_id: str | None = None) -> str | None:

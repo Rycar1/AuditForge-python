@@ -22,6 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from .java_ast_semantics import analyze_java_ast_semantics
 from .java_go_analysis import analyze_go, analyze_java
 from .language_frontend import LanguageAnalysisResult, LanguageFactBuilder, dedupe_strings
 from .utils import sha256_text
@@ -447,42 +448,63 @@ def native_payload_to_result(source_file: Any, payload: dict[str, Any]) -> Langu
         updated_functions.append(updated)
     builder.result.functions = updated_functions
 
+    overlay = analyze_java_ast_semantics(source_file, raw, builder, function_map) if language == "java" else None
+    dead_lines = overlay.dead_lines if overlay else set()
+    overridden_lines = overlay.overridden_flow_lines if overlay else set()
+
     for item in _objects(raw.get("assignments")):
         target = _text(item.get("target"), 600)
-        if target:
+        line = _line(source_file, item.get("line"))
+        if target and line not in dead_lines and line not in overridden_lines:
             builder.add_assignment(
                 target,
                 _strings(item.get("sources"), 500),
                 _text(item.get("expression"), 1600),
-                _line(source_file, item.get("line")),
+                line,
                 function=function_map.get(_text(item.get("scopeKey"), 240)),
+                end_line=_line(source_file, item.get("endLine"), minimum=line),
             )
     for item in _objects(raw.get("returns")):
-        builder.add_return(
-            _text(item.get("expression"), 1600),
-            _strings(item.get("sources"), 500),
-            _line(source_file, item.get("line")),
-            function=function_map.get(_text(item.get("scopeKey"), 240)),
-        )
+        line = _line(source_file, item.get("line"))
+        if line not in dead_lines:
+            builder.add_return(
+                _text(item.get("expression"), 1600),
+                _strings(item.get("sources"), 500),
+                line,
+                function=function_map.get(_text(item.get("scopeKey"), 240)),
+            )
     for item in _objects(raw.get("calls")):
         callee = _text(item.get("callee"), 800)
-        if callee:
+        line = _line(source_file, item.get("line"))
+        if callee and line not in dead_lines:
             builder.add_call(
                 callee,
-                _line(source_file, item.get("line")),
+                line,
                 _nested_strings(item.get("argumentSources"), 100, 200),
                 function=function_map.get(_text(item.get("scopeKey"), 240)),
+                end_line=_line(source_file, item.get("endLine"), minimum=line),
             )
     for item in _objects(raw.get("controls")):
         kind = _text(item.get("kind"), 20)
-        if kind in {"if", "elif", "else", "for", "while", "switch", "case", "catch"}:
+        line = _line(source_file, item.get("line"))
+        if kind in {"if", "elif", "else", "for", "while", "switch", "case", "catch"} and line not in dead_lines:
             builder.add_control(
                 kind,
                 _text(item.get("condition"), 1600),
-                _line(source_file, item.get("line")),
+                line,
                 _strings(item.get("variables"), 500),
                 function=function_map.get(_text(item.get("scopeKey"), 240)),
             )
+    if overlay is not None:
+        builder.result.data_flows.extend(overlay.replacement_flows)
+        builder.result.data_flows.extend(overlay.extra_flows)
+        builder.result.routes.extend(overlay.routes)
+        builder.result.sources.extend(overlay.sources)
+        builder.result.sinks.extend(overlay.sinks)
+        builder.result.sanitizers.extend(overlay.sanitizers)
+        builder.result.dead_lines = dead_lines
+        builder.result.overridden_flow_lines = overridden_lines
+        builder.result.suppressed_sink_lines = overlay.suppressed_sinks
     return _mark_ast(builder.result)
 
 
@@ -498,22 +520,88 @@ def _merge_structural_and_framework_facts(structural: LanguageAnalysisResult, he
     removes identical facts after all files have been analysed; ordering AST
     facts first preserves their stronger provenance where both frontends agree.
     """
+    dead = structural.dead_lines
+    overridden = structural.overridden_flow_lines
+    suppressed = structural.suppressed_sink_lines
+
+    def _live(items: list[Any]) -> list[Any]:
+        return [item for item in items if item.anchor.start_line not in dead] if dead else items
+
+    h_calls = _live(heuristic.call_sites)
+    h_flows = [
+        item
+        for item in _live(heuristic.data_flows)
+        if not (overridden and item.kind == "assignment" and item.anchor.start_line in overridden)
+    ]
+    h_controls = _live(heuristic.control_flows)
+    h_sources = _live(heuristic.sources)
+    h_sinks = [item for item in _live(heuristic.sinks) if item.kind not in suppressed.get(item.anchor.start_line, ())]
+    h_sanitizers = _live(heuristic.sanitizers)
+
     return LanguageAnalysisResult(
         functions=[*structural.functions, *heuristic.functions],
         classes=[*structural.classes, *heuristic.classes],
-        routes=heuristic.routes,
+        routes=_dedupe_equivalent([*structural.routes, *heuristic.routes], _route_key),
         # Frontends generate call and flow ids from their own event order.  The
         # same source construct can therefore have two ids if one frontend
-        # recognises an earlier construct that the other ignores.  Remove only
-        # fully equivalent facts here; different callees, variables, paths or
-        # expressions remain additive and retain the original detection surface.
-        call_sites=_dedupe_equivalent([*structural.call_sites, *heuristic.call_sites], _call_key),
-        data_flows=_dedupe_equivalent([*structural.data_flows, *heuristic.data_flows], _data_flow_key),
-        control_flows=_dedupe_equivalent([*structural.control_flows, *heuristic.control_flows], _control_flow_key),
-        sources=heuristic.sources,
-        sinks=heuristic.sinks,
-        sanitizers=heuristic.sanitizers,
+        # Recognises an earlier construct that the other ignores.  Preserve
+        # heuristic framework provenance where tests/models expect it while
+        # inheriting wider multi-line AST anchor spans when both agree.
+        call_sites=_dedupe_equivalent([*structural.call_sites, *h_calls], _call_key),
+        data_flows=_dedupe_equivalent([*structural.data_flows, *h_flows], _data_flow_key),
+        control_flows=_dedupe_equivalent([*structural.control_flows, *h_controls], _control_flow_key),
+        sources=_dedupe_with_wider_spans(h_sources, structural.sources, _source_key),
+        sinks=_dedupe_with_wider_spans(h_sinks, structural.sinks, _sink_key),
+        sanitizers=_dedupe_with_wider_spans(h_sanitizers, structural.sanitizers, _sanitizer_key),
     )
+
+
+def _dedupe_with_wider_spans(primary: list[Any], secondary: list[Any], key: Any) -> list[Any]:
+    result: list[Any] = []
+    index_by_key: dict[tuple[Any, ...], int] = {}
+    for item in primary:
+        marker = key(item)
+        if marker in index_by_key:
+            continue
+        index_by_key[marker] = len(result)
+        result.append(item)
+    for item in secondary:
+        marker = key(item)
+        existing_idx = index_by_key.get(marker)
+        if existing_idx is None:
+            index_by_key[marker] = len(result)
+            result.append(item)
+            continue
+        existing = result[existing_idx]
+        updates: dict[str, Any] = {}
+        if item.anchor.end_line > existing.anchor.end_line:
+            updates["anchor"] = replace(existing.anchor, end_line=item.anchor.end_line)
+        # Keep the heuristic item's analysis_method provenance, but adopt AST
+        # enclosing scope and non-empty variable lists when regex scope differed.
+        item_fn = getattr(item, "enclosing_function_id", None)
+        if item_fn and getattr(item, "analysis_method", None) == "ast" and getattr(existing, "enclosing_function_id", None) != item_fn:
+            updates["enclosing_function_id"] = item_fn
+        if hasattr(existing, "variables") and not existing.variables and getattr(item, "variables", None):
+            updates["variables"] = item.variables
+        if updates:
+            result[existing_idx] = replace(existing, **updates)
+    return result
+
+
+def _route_key(item: Any) -> tuple[Any, ...]:
+    return (item.anchor.file, item.anchor.start_line, item.method, item.path)
+
+
+def _source_key(item: Any) -> tuple[Any, ...]:
+    return (item.anchor.file, item.anchor.start_line, item.kind, tuple(item.variables))
+
+
+def _sink_key(item: Any) -> tuple[Any, ...]:
+    return (item.anchor.file, item.anchor.start_line, item.kind)
+
+
+def _sanitizer_key(item: Any) -> tuple[Any, ...]:
+    return (item.anchor.file, item.anchor.start_line, item.kind, tuple(item.input_variables))
 
 
 def _dedupe_equivalent(items: list[Any], key: Any) -> list[Any]:

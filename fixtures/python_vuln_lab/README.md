@@ -29,7 +29,7 @@ python -m venv .venv
 在 AuditForge WebUI 的“新建扫描”里选择本地路径：
 
 ```text
-C:\Users\AgiUser\Documents\Codex\2026-06-18\keygraphhq-shannon-https-github-com-keygraphhq-2\work\auditforge\fixtures\python_vuln_lab
+<repository-root>\fixtures\python_vuln_lab
 ```
 
 如果要做动态验证，请把目标 URL 填为：

@@ -165,7 +165,7 @@ def default_llm_connection() -> dict[str, Any]:
         "api_key_env": "AUDITFORGE_LLM_API_KEY",
         "api_key": None,
         "response_file": None,
-        "max_candidates": 36,
+        "max_candidates": 200,
         "timeout_seconds": 60,
         "concurrency": 3,
         "sandbox_concurrency": 3,
@@ -329,9 +329,9 @@ def normalize_setting_value(key: str, value: Any) -> Any:
         return redacted
     if key == "max_candidates":
         try:
-            return max(1, min(50, int(value)))
+            return max(1, min(500, int(value)))
         except (TypeError, ValueError):
-            return 36
+            return 200
     if key == "timeout_seconds":
         try:
             return max(10, min(600, int(value)))
@@ -629,7 +629,7 @@ def llm_config_from_settings(settings: dict[str, Any], profile: str = "taint") -
         api_key_env=str(connection_value("api_key_env", "AUDITFORGE_LLM_API_KEY") or "AUDITFORGE_LLM_API_KEY"),
         response_file=str(connection_value("response_file", "") or "") or None,
         timeout_seconds=int(connection_value("timeout_seconds", 60) or 60),
-        max_candidates=int(connection_value("max_candidates", 36) or 36),
+        max_candidates=int(connection_value("max_candidates", 200) or 200),
         concurrency=int(connection_value("concurrency", 3) or 3),
         system_prompt=str(profile_value("system_prompt", None) or "") or None,
         user_prompt=str(profile_value("user_prompt", None) or "") or None,

@@ -34,12 +34,46 @@ SINK_TAXONOMY: dict[str, tuple[str, list[str]]] = {
     "file_path": ("path_traversal", ["CWE-22"]),
     "deserialization": ("unsafe_deserialization", ["CWE-502"]),
     "code_evaluation": ("code_injection", ["CWE-95"]),
+    "code_injection": ("code_injection", ["CWE-94", "CWE-95"]),
+    "ldap_injection": ("ldap_injection", ["CWE-90"]),
+    "xpath_injection": ("xpath_injection", ["CWE-643"]),
+    "xxe": ("xxe", ["CWE-611"]),
     "html_output": ("cross_site_scripting", ["CWE-79"]),
     "external_request": ("server_side_request_forgery", ["CWE-918"]),
+    "open_redirect": ("open_redirect", ["CWE-601"]),
     "template_compilation": ("template_injection", ["CWE-94"]),
     "prototype_mutation": ("prototype_pollution", ["CWE-1321"]),
     "auth_primitive": ("authentication_failure", ["CWE-287"]),
     "authorization_decision": ("authorization_failure", ["CWE-862"]),
+    "trust_boundary": ("trust_boundary_violation", ["CWE-501"]),
+    "insecure_cookie": ("insecure_cookie", ["CWE-614"]),
+    "weak_hash": ("weak_cryptography", ["CWE-328", "CWE-327"]),
+    "weak_cipher": ("weak_cryptography", ["CWE-327"]),
+    "weak_random": ("insecure_randomness", ["CWE-330", "CWE-338"]),
+}
+
+SINK_VULN_CLASS: dict[str, str] = {
+    "raw_sql": "injection",
+    "command_execution": "injection",
+    "file_path": "injection",
+    "deserialization": "injection",
+    "code_evaluation": "injection",
+    "code_injection": "injection",
+    "ldap_injection": "injection",
+    "xpath_injection": "injection",
+    "xxe": "injection",
+    "html_output": "xss",
+    "external_request": "ssrf",
+    "open_redirect": "ssrf",
+    "template_compilation": "injection",
+    "prototype_mutation": "injection",
+    "auth_primitive": "auth",
+    "authorization_decision": "authz",
+    "trust_boundary": "auth",
+    "insecure_cookie": "auth",
+    "weak_hash": "auth",
+    "weak_cipher": "auth",
+    "weak_random": "auth",
 }
 
 
@@ -54,6 +88,9 @@ class LanguageAnalysisResult:
     sources: list[SourceFact] = field(default_factory=list)
     sinks: list[SinkFact] = field(default_factory=list)
     sanitizers: list[SanitizerFact] = field(default_factory=list)
+    dead_lines: set[int] = field(default_factory=set, repr=False, compare=False)
+    overridden_flow_lines: set[int] = field(default_factory=set, repr=False, compare=False)
+    suppressed_sink_lines: dict[int, set[str]] = field(default_factory=dict, repr=False, compare=False)
 
 
 class LanguageFactBuilder:
@@ -150,13 +187,14 @@ class LanguageFactBuilder:
         *,
         confidence: str = "high",
         function: FunctionFact | None = None,
+        end_line: int | None = None,
     ) -> SourceFact:
         function = function or self.function_for_line(line)
         fact = SourceFact(
             id=stable_id("source", self.path, line, f"{kind}:{expression}"),
             kind=kind,
             expression=expression,
-            anchor=self.anchor(line, line, variables[0] if variables else kind),
+            anchor=self.anchor(line, end_line or line, variables[0] if variables else kind),
             confidence=confidence,  # type: ignore[arg-type]
             variables=dedupe_strings(variables),
             input_variables=dedupe_strings(variables),
@@ -175,28 +213,17 @@ class LanguageFactBuilder:
         *,
         confidence: str = "high",
         function: FunctionFact | None = None,
+        end_line: int | None = None,
     ) -> SinkFact:
         function = function or self.function_for_line(line)
         taxonomy_id, cwe_ids = SINK_TAXONOMY[kind]
-        vuln_class = {
-            "raw_sql": "injection",
-            "command_execution": "injection",
-            "file_path": "injection",
-            "deserialization": "injection",
-            "code_evaluation": "injection",
-            "html_output": "xss",
-            "external_request": "ssrf",
-            "template_compilation": "injection",
-            "prototype_mutation": "injection",
-            "auth_primitive": "auth",
-            "authorization_decision": "authz",
-        }[kind]
+        vuln_class = SINK_VULN_CLASS[kind]
         fact = SinkFact(
             id=stable_id("sink", self.path, line, f"{kind}:{expression}"),
             kind=kind,
             vuln_class=vuln_class,  # type: ignore[arg-type]
             expression=expression,
-            anchor=self.anchor(line, line, kind),
+            anchor=self.anchor(line, end_line or line, kind),
             confidence=confidence,  # type: ignore[arg-type]
             variables=dedupe_strings(variables),
             enclosing_function_id=function.id if function else None,
@@ -244,7 +271,9 @@ class LanguageFactBuilder:
         expression: str,
         line: int,
         *,
+        safe_overwrite: bool = False,
         function: FunctionFact | None = None,
+        end_line: int | None = None,
     ) -> DataFlowFact:
         function = function or self.function_for_line(line)
         fact = DataFlowFact(
@@ -253,9 +282,10 @@ class LanguageFactBuilder:
             target=target,
             sources=dedupe_strings(sources),
             expression=expression,
-            anchor=self.anchor(line, line, target),
+            anchor=self.anchor(line, end_line or line, target),
             enclosing_function_id=function.id if function else None,
             analysis_method="heuristic",
+            ssa_safe_overwrite=safe_overwrite,
         )
         self.result.data_flows.append(fact)
         return fact
@@ -283,13 +313,14 @@ class LanguageFactBuilder:
         *,
         keywords: dict[str, list[str]] | None = None,
         function: FunctionFact | None = None,
+        end_line: int | None = None,
     ) -> CallSiteFact:
         function = function or self.function_for_line(line)
         keyword_sources = keywords or {}
         fact = CallSiteFact(
             id=stable_id("callsite", self.path, line, f"{callee}:{len(self.result.call_sites)}"),
             callee=callee,
-            anchor=self.anchor(line, line, callee),
+            anchor=self.anchor(line, end_line or line, callee),
             enclosing_function_id=function.id if function else None,
             argument_sources=[dedupe_strings(item) for item in arguments],
             keyword_sources={key: dedupe_strings(value) for key, value in keyword_sources.items()},

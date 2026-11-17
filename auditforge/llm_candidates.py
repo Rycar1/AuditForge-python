@@ -13,17 +13,20 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from .call_resolution import CallResolver, resolution_models_from_diagnostics
+from .language_frontend import SINK_TAXONOMY
 from .models import CodeAnchor, CodeFacts, Confidence, TraceCandidate, TraceStep
 from .snippets import code_window
 from .utils import normalize_path, sha256_text
 
 ALLOWED_VULN_CLASSES: set[str] = {"injection", "xss", "ssrf", "auth", "authz"}
 ALLOWED_CONFIDENCE: set[str] = {"low", "medium", "high"}
-MAX_LLM_CANDIDATES = 36
+MAX_LLM_CANDIDATES = 200
 MAX_LLM_CANDIDATES_PER_TASK = 500
 MAX_LLM_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_AUDIT_TASKS_PER_AGENT = 8
 MAX_FUNCTIONS_PER_SCOPE = 8
+MAX_FUNCTIONS_PER_PACKED_SCOPE = 12
+MAX_SCOPE_PACK_BYTES = 14000
 MAX_RELATED_FUNCTIONS_PER_SCOPE = 48
 MAX_CALL_GRAPH_DEPTH = 3
 MAX_CALL_SUBGRAPH_EDGES = 96
@@ -38,6 +41,8 @@ CANDIDATE_OUTPUT_CONTRACT = """必须返回一个 JSON object，根对象必须�
 candidates 必须是数组；没有候选时返回 {"candidates": []}。
 每个 candidates[] 元素必须包含：
 - vulnClass: "injection" | "xss" | "ssrf" | "auth" | "authz"
+- taxonomyId?: optional lowercase taxonomy identifier, e.g. "sql_injection" | "command_injection" | "path_traversal" | "cross_site_scripting" | "open_redirect" | "ldap_injection" | "xpath_injection" | "xxe" | "weak_cryptography" | "insecure_randomness" | "insecure_cookie" | "trust_boundary_violation"
+- cweIds?: optional string array of canonical CWE identifiers, e.g. ["CWE-89"]
 - source: {"file": string, "startLine": positive integer, "endLine"?: positive integer, "symbol"?: string}
 - sink: {"file": string, "startLine": positive integer, "endLine"?: positive integer, "symbol"?: string}
 - steps: array，可为空；元素格式为 {"kind": "assignment"|"call"|"return"|"branch"|"framework_binding"|"llm_inferred", "from"?: CodeAnchor, "to"?: CodeAnchor, "explanation": non-empty Chinese string, "confidence": "low"|"medium"|"high"}
@@ -85,6 +90,8 @@ class LLMConfig:
     concurrency: int = 3
     system_prompt: str | None = None
     user_prompt: str | None = None
+    discovery_enabled: bool = True
+    triage_enabled: bool = False
 
 
 def preflight_llm_config(config: LLMConfig | None) -> tuple[LLMConfig, dict[str, Any]]:
@@ -229,8 +236,18 @@ def generate_llm_candidates(
             "rejected": 0,
             "assessments": [],
         },
+        "evidence_review": {
+            "all_count": 0,
+            "verified_count": 0,
+            "filtered_count": 0,
+            "all_fingerprints": [],
+            "verified_fingerprints": [],
+            "filtered": [],
+            "all_candidates": [],
+            "verified_candidates": [],
+        },
     }
-    if not config.enabled:
+    if not config.enabled or not config.discovery_enabled:
         return [], diagnostics
 
     tasks = plan_llm_audit_tasks(facts)
@@ -243,6 +260,7 @@ def generate_llm_candidates(
         diagnostics["complete"] = True
         return [], diagnostics
 
+    fact_index = _build_fact_index(facts)
     prepared: list[tuple[int, LLMAuditTask, str]] = []
     task_details: dict[int, dict[str, Any]] = {}
     for index, task in enumerate(tasks):
@@ -264,17 +282,31 @@ def generate_llm_candidates(
                 config.max_prompt_chars,
                 config.user_prompt,
                 audit_task=task,
+                fact_index=fact_index,
             )
-            detail["context_manifest"] = prompt_context_manifest(prompt, facts, task, config.max_prompt_chars)
+            detail["context_manifest"] = prompt_context_manifest(prompt, facts, task, config.max_prompt_chars, fact_index=fact_index)
         except Exception as exc:  # noqa: BLE001 - one malformed scope must not stop other agents
             detail["status"] = "failed"
             detail["error"] = str(exc)
             continue
         prepared.append((index, task, prompt))
 
-    workers = max(1, min(12, int(config.concurrency or 1), len(prepared) or 1))
-    diagnostics["concurrency"] = workers if prepared else 0
-    responses, initial_batch = execute_llm_task_batch(prepared, config, task_details)
+    covered_files = {
+        *{normalize_path(candidate.source.file) for candidate in existing_candidates},
+        *{normalize_path(candidate.sink.file) for candidate in existing_candidates},
+    }
+    prioritized_prepared = sorted(
+        prepared,
+        key=lambda item: (
+            0 if any(normalize_path(path) not in covered_files for path in item[1].files) else 1,
+            0 if item[1].scope_kind == "entrypoint_sink_slice" else 1,
+            item[0],
+        ),
+    )
+
+    workers = max(1, min(12, int(config.concurrency or 1), len(prioritized_prepared) or 1))
+    diagnostics["concurrency"] = workers if prioritized_prepared else 0
+    responses, initial_batch = execute_llm_task_batch(prioritized_prepared, config, task_details)
     diagnostics["overall_timeout_seconds"] = initial_batch["timeout_seconds"]
     diagnostics["overall_timeout"] = initial_batch["timed_out"]
     diagnostics["timed_out"] = list(initial_batch["timed_out_task_ids"])
@@ -341,8 +373,9 @@ def generate_llm_candidates(
                     config.max_prompt_chars,
                     config.user_prompt,
                     audit_task=task,
+                    fact_index=fact_index,
                 )
-                detail["context_manifest"] = prompt_context_manifest(prompt, facts, task, config.max_prompt_chars)
+                detail["context_manifest"] = prompt_context_manifest(prompt, facts, task, config.max_prompt_chars, fact_index=fact_index)
             except Exception as exc:  # noqa: BLE001 - one focused scope must not stop the scan
                 detail["status"] = "failed"
                 detail["error"] = str(exc)
@@ -388,6 +421,7 @@ def generate_llm_candidates(
             MAX_LLM_CANDIDATES_PER_TASK,
             local_diagnostics,
             allowed_anchor_lines_from_prompt(prompt),
+            facts=facts,
         )
         for rejected in local_diagnostics["rejected"]:
             rejected.setdefault("task_id", task.id)
@@ -399,7 +433,7 @@ def generate_llm_candidates(
             assessment_key = json.dumps(candidate.to_dict(), sort_keys=True, ensure_ascii=False)
             assessment = assessment_cache.get(assessment_key)
             if assessment is None:
-                assessment = evaluate_candidate_evidence(candidate, facts)
+                assessment = evaluate_candidate_evidence(candidate, facts, fact_index=fact_index)
                 assessment_cache[assessment_key] = assessment
                 record_evidence_assessment(diagnostics, task, candidate, assessment)
             if not assessment.accepted:
@@ -433,7 +467,18 @@ def generate_llm_candidates(
     accepted = [
         replace(candidate, id=f"LLM-{candidate.vuln_class.upper()}-TRACE-{index:03d}") for index, candidate in enumerate(accepted, 1)
     ]
+    verified, review_entries = review_candidates_with_evidence(accepted, facts, fact_index=fact_index)
     diagnostics["accepted"] = len(accepted)
+    diagnostics["evidence_review"] = {
+        "all_count": len(accepted),
+        "verified_count": len(verified),
+        "filtered_count": len(accepted) - len(verified),
+        "all_fingerprints": [candidate.fingerprint for candidate in accepted],
+        "verified_fingerprints": [candidate.fingerprint for candidate in verified],
+        "filtered": [entry for entry in review_entries if not entry["verified"]],
+        "all_candidates": [candidate.to_dict() for candidate in accepted],
+        "verified_candidates": [candidate.to_dict() for candidate in verified],
+    }
     diagnostics["candidate_provenance"] = provenance
     diagnostics["succeeded"] = initial_succeeded
     diagnostics["failed"] = initial_failed
@@ -543,14 +588,153 @@ def llm_stage_timeout_seconds(config: LLMConfig, task_count: int, workers: int) 
     return min(900, request_timeout * max(2, min(6, waves)))
 
 
-def evaluate_candidate_evidence(candidate: TraceCandidate, facts: CodeFacts) -> CandidateEvidenceAssessment:
+@dataclass
+class _FactIndex:
+    """Pre-indexed CodeFacts lookup avoiding quadratic scans across tasks and candidates."""
+
+    facts: CodeFacts
+    files_by_path: dict[str, list[Any]]
+    functions_by_id: dict[str, Any]
+    functions_by_file_norm: dict[str, list[Any]]
+    functions_by_file_lower: dict[str, list[Any]]
+    classes_by_file_norm: dict[str, list[Any]]
+    routes_by_handler_id: dict[str, list[Any]]
+    unscoped_routes_by_file_norm: dict[str, list[Any]]
+    call_sites_by_func: dict[str, list[tuple[int, Any]]]
+    unscoped_calls_by_file: dict[str, list[tuple[int, Any]]]
+    data_flows_by_func: dict[str, list[tuple[int, Any]]]
+    unscoped_flows_by_file: dict[str, list[tuple[int, Any]]]
+    control_flows_by_func: dict[str, list[tuple[int, Any]]]
+    unscoped_controls_by_file: dict[str, list[tuple[int, Any]]]
+    control_flows_by_file_lower: dict[str, list[Any]]
+    sources_by_func: dict[str, list[tuple[int, Any]]]
+    unscoped_sources_by_file: dict[str, list[tuple[int, Any]]]
+    sources_by_file_lower: dict[str, list[Any]]
+    sinks_by_func: dict[str, list[tuple[int, Any]]]
+    unscoped_sinks_by_file: dict[str, list[tuple[int, Any]]]
+    sinks_by_file_lower: dict[str, list[Any]]
+    sanitizers_by_func: dict[str, list[tuple[int, Any]]]
+    unscoped_sanitizers_by_file: dict[str, list[tuple[int, Any]]]
+    sanitizers_by_file_lower: dict[str, list[Any]]
+    imports_by_file_norm: dict[str, list[Any]]
+    _resolved_edges: list[tuple[str, str, Any]] | None = None
+    _edges_by_func: dict[str, list[tuple[int, tuple[str, str, Any]]]] | None = None
+
+    def get_edges_for_functions(self, function_ids: set[str]) -> list[tuple[str, str, Any]]:
+        if self._resolved_edges is None:
+            self._resolved_edges = resolved_call_edges(self.facts)
+            by_func: dict[str, list[tuple[int, tuple[str, str, Any]]]] = {}
+            for idx, edge in enumerate(self._resolved_edges):
+                caller_id, callee_id, _ = edge
+                if caller_id:
+                    by_func.setdefault(caller_id, []).append((idx, edge))
+                if callee_id and callee_id != caller_id:
+                    by_func.setdefault(callee_id, []).append((idx, edge))
+            self._edges_by_func = by_func
+        seen: dict[int, tuple[str, str, Any]] = {}
+        assert self._edges_by_func is not None
+        for fid in function_ids:
+            for idx, edge in self._edges_by_func.get(fid, ()):
+                if edge[0] in function_ids and edge[1] in function_ids:
+                    seen[idx] = edge
+        return [seen[idx] for idx in sorted(seen)]
+
+
+def _index_scoped_collection(
+    items: list[Any],
+) -> tuple[dict[str, list[tuple[int, Any]]], dict[str, list[tuple[int, Any]]], dict[str, list[Any]]]:
+    by_func: dict[str, list[tuple[int, Any]]] = {}
+    unscoped_by_file: dict[str, list[tuple[int, Any]]] = {}
+    by_file_lower: dict[str, list[Any]] = {}
+    for idx, item in enumerate(items):
+        file_norm = normalize_path(item.anchor.file)
+        by_file_lower.setdefault(file_norm.lower(), []).append(item)
+        if item.enclosing_function_id:
+            by_func.setdefault(item.enclosing_function_id, []).append((idx, item))
+        else:
+            unscoped_by_file.setdefault(file_norm, []).append((idx, item))
+    return by_func, unscoped_by_file, by_file_lower
+
+
+def _build_fact_index(facts: CodeFacts) -> _FactIndex:
+    files_by_path: dict[str, list[Any]] = {}
+    for item in facts.files:
+        files_by_path.setdefault(normalize_path(item.path), []).append(item)
+    functions_by_id: dict[str, Any] = {}
+    functions_by_file_norm: dict[str, list[Any]] = {}
+    functions_by_file_lower: dict[str, list[Any]] = {}
+    for fn in facts.functions:
+        functions_by_id[fn.id] = fn
+        fn_norm = normalize_path(fn.anchor.file)
+        functions_by_file_norm.setdefault(fn_norm, []).append(fn)
+        functions_by_file_lower.setdefault(fn_norm.lower(), []).append(fn)
+    classes_by_file_norm: dict[str, list[Any]] = {}
+    for cls in facts.classes:
+        classes_by_file_norm.setdefault(normalize_path(cls.anchor.file), []).append(cls)
+    routes_by_handler_id: dict[str, list[Any]] = {}
+    unscoped_routes_by_file_norm: dict[str, list[Any]] = {}
+    for route in facts.routes:
+        if route.handler_function_id:
+            routes_by_handler_id.setdefault(route.handler_function_id, []).append(route)
+        else:
+            unscoped_routes_by_file_norm.setdefault(normalize_path(route.anchor.file), []).append(route)
+    imports_by_file_norm: dict[str, list[Any]] = {}
+    for imp in facts.imports:
+        imports_by_file_norm.setdefault(normalize_path(imp.anchor.file), []).append(imp)
+
+    call_by_fn, call_unscoped, _ = _index_scoped_collection(facts.call_sites)
+    flow_by_fn, flow_unscoped, _ = _index_scoped_collection(facts.data_flows)
+    ctrl_by_fn, ctrl_unscoped, ctrl_lower = _index_scoped_collection(facts.control_flows)
+    src_by_fn, src_unscoped, src_lower = _index_scoped_collection(facts.sources)
+    sink_by_fn, sink_unscoped, sink_lower = _index_scoped_collection(facts.sinks)
+    san_by_fn, san_unscoped, san_lower = _index_scoped_collection(facts.sanitizers)
+
+    return _FactIndex(
+        facts=facts,
+        files_by_path=files_by_path,
+        functions_by_id=functions_by_id,
+        functions_by_file_norm=functions_by_file_norm,
+        functions_by_file_lower=functions_by_file_lower,
+        classes_by_file_norm=classes_by_file_norm,
+        routes_by_handler_id=routes_by_handler_id,
+        unscoped_routes_by_file_norm=unscoped_routes_by_file_norm,
+        call_sites_by_func=call_by_fn,
+        unscoped_calls_by_file=call_unscoped,
+        data_flows_by_func=flow_by_fn,
+        unscoped_flows_by_file=flow_unscoped,
+        control_flows_by_func=ctrl_by_fn,
+        unscoped_controls_by_file=ctrl_unscoped,
+        control_flows_by_file_lower=ctrl_lower,
+        sources_by_func=src_by_fn,
+        unscoped_sources_by_file=src_unscoped,
+        sources_by_file_lower=src_lower,
+        sinks_by_func=sink_by_fn,
+        unscoped_sinks_by_file=sink_unscoped,
+        sinks_by_file_lower=sink_lower,
+        sanitizers_by_func=san_by_fn,
+        unscoped_sanitizers_by_file=san_unscoped,
+        sanitizers_by_file_lower=san_lower,
+        imports_by_file_norm=imports_by_file_norm,
+    )
+
+
+def evaluate_candidate_evidence(
+    candidate: TraceCandidate,
+    facts: CodeFacts,
+    *,
+    fact_index: _FactIndex | None = None,
+) -> CandidateEvidenceAssessment:
     """Apply a deterministic local evidence gate and quality rubric to an LLM candidate."""
 
     starts_at_source, ends_at_sink, connected = trace_chain_status(candidate)
-    source_matches = [item for item in facts.sources if anchors_overlap(candidate.source, item.anchor)]
-    sink_matches = [item for item in facts.sinks if anchors_overlap(candidate.sink, item.anchor)]
+    src_file = normalize_path(candidate.source.file).lower()
+    sink_file = normalize_path(candidate.sink.file).lower()
+    source_pool = fact_index.sources_by_file_lower.get(src_file, ()) if fact_index else facts.sources
+    sink_pool = fact_index.sinks_by_file_lower.get(sink_file, ()) if fact_index else facts.sinks
+    source_matches = [item for item in source_pool if anchors_overlap(candidate.source, item.anchor)]
+    sink_matches = [item for item in sink_pool if anchors_overlap(candidate.sink, item.anchor)]
     class_sink_matches = [item for item in sink_matches if item.vuln_class == candidate.vuln_class]
-    route_id = candidate.route_id or route_for_candidate(candidate, facts)
+    route_id = candidate.route_id or route_for_candidate(candidate, facts, fact_index=fact_index)
     inferred_steps = sum(step.kind == "llm_inferred" for step in candidate.steps)
     concrete_steps = len(candidate.steps) - inferred_steps
     evidence_text = " ".join(
@@ -564,13 +748,13 @@ def evaluate_candidate_evidence(candidate: TraceCandidate, facts: CodeFacts) -> 
     explains_missing_guard = bool(
         re.search(r"缺少|未校验|未检查|不足|不匹配|绕过|部分路径|missing|without|bypass|insufficient|not checked", evidence_text)
     )
-    effective_sanitizers = effective_sanitizers_for_candidate(candidate, facts, sink_matches)
+    effective_sanitizers = effective_sanitizers_for_candidate(candidate, facts, sink_matches, fact_index=fact_index)
     acknowledged_sanitizer = any(
         anchors_overlap(candidate_anchor, sanitizer.anchor)
         for candidate_anchor in candidate.sanitizers
         for sanitizer in effective_sanitizers
     )
-    guard_clues = security_guard_clues(candidate, facts)
+    guard_clues = security_guard_clues(candidate, facts, fact_index=fact_index)
     evidence_has_source_file = normalize_path(candidate.source.file).lower() in normalize_path(evidence_text).lower()
     evidence_has_sink_file = normalize_path(candidate.sink.file).lower() in normalize_path(evidence_text).lower()
     evidence_has_line = bool(re.search(r"(?:^|[^a-z0-9_])\d{1,7}(?:[^a-z0-9_]|$)", evidence_text))
@@ -648,6 +832,592 @@ def evaluate_candidate_evidence(candidate: TraceCandidate, facts: CodeFacts) -> 
     )
 
 
+def review_candidates_with_evidence(
+    candidates: list[TraceCandidate],
+    facts: CodeFacts,
+    *,
+    min_score: int = 55,
+    fact_index: _FactIndex | None = None,
+) -> tuple[list[TraceCandidate], list[dict[str, Any]]]:
+    """Separate evidence-verified LLM candidates from likely false positives.
+
+    Retains deterministic provenance explaining why each candidate passed or was
+    filtered out so benchmarks can report both full (raw) and verified metrics.
+    """
+
+    if fact_index is None and len(candidates) > 1:
+        fact_index = _build_fact_index(facts)
+    verified: list[TraceCandidate] = []
+    entries: list[dict[str, Any]] = []
+    for candidate in candidates:
+        assessment = evaluate_candidate_evidence(candidate, facts, fact_index=fact_index)
+        signals = assessment.signals
+        filter_reasons = list(assessment.reasons)
+        has_unaddressed_sanitizer = bool(signals.get("effective_sanitizers")) and not bool(signals.get("sanitizer_addressed"))
+        has_unaddressed_guard = bool(signals.get("guard_clues")) and not bool(signals.get("sanitizer_addressed"))
+        purely_speculative = (
+            int(signals.get("concrete_steps") or 0) == 0 and not bool(signals.get("source_fact")) and not bool(signals.get("sink_fact"))
+        )
+        passed = (
+            assessment.accepted
+            and assessment.score >= min_score
+            and not has_unaddressed_sanitizer
+            and not purely_speculative
+            and not (has_unaddressed_guard and assessment.score < min_score + 10)
+        )
+        if not passed and assessment.score < min_score:
+            filter_reasons.append(f"evidence score {assessment.score} below review threshold {min_score}")
+        entries.append(
+            {
+                "id": candidate.id,
+                "fingerprint": candidate.fingerprint,
+                "verified": passed,
+                "score": assessment.score,
+                "reasons": filter_reasons,
+                "signals": dict(signals),
+            }
+        )
+        if passed:
+            verified.append(candidate)
+    return verified, entries
+
+
+TRIAGE_SYSTEM_PROMPT = (
+    "You are a conservative AppSec SAST triager reviewing static source-to-sink candidates. "
+    "Default decision is 'keep' unless the provided source code explicitly proves a false positive. "
+    "Only return decision='false_positive' with confidence='high' when code unambiguously establishes one of: "
+    "(1) dead/unreachable branch or safe constant overwrite prevents tainted data from reaching the sink; "
+    "(2) the sink receives only hardcoded constants or non-attacker-controlled values; "
+    "(3) a context-matching sanitizer, parameterized API, positive allowlist, or positive path containment check "
+    "(such as startswith, is_relative_to, or isRelativeTo on resolved paths) neutralizes taint before the sink; "
+    "substring blacklists (such as '..' checks, quote substring checks, or naive str.replace) are NOT sufficient "
+    "unless syntax structurally prevents breakout for that language and CWE; "
+    "(4) non-security usage (such as PRNG for benign UI/dice/sampling unrelated to tokens, cookies, sessions, keys, "
+    "or auth, weak hash used solely as non-cryptographic checksum/ETag/cache key, or non-HTML JSON/XML/plain-text "
+    "responses for XSS); "
+    "(5) the sink API structurally enforces safety against the reported CWE. "
+    "Cite specific line numbers and variable/API names from the code snippets in reason."
+)
+TRIAGE_OUTPUT_CONTRACT = """Return a JSON object containing a single field "reviews" (an array):
+{"reviews": [{"id": "candidate id", "decision": "keep" | "false_positive", "confidence": "low" | "medium" | "high", "reason": "concise evidence citing line numbers and code constructs"}]}
+Rules:
+- Every candidate id in the input batch must appear at most once in reviews.
+- When uncertain, partially sanitized, or context is missing, return decision='keep'.
+- Output strict JSON only without markdown fences."""
+
+
+def _collect_candidate_code_ranges(
+    candidate: TraceCandidate,
+    facts: CodeFacts,
+    file_lines_cache: dict[str, list[str]],
+    repo_path: Path,
+    *,
+    fact_index: _FactIndex | None = None,
+) -> dict[str, list[tuple[int, int]]]:
+    def get_lines(file_path: str) -> list[str]:
+        norm = normalize_path(file_path)
+        if norm not in file_lines_cache:
+            file_lines_cache[norm] = safe_context_file_lines(repo_path, norm)
+        return file_lines_cache[norm]
+
+    ranges_by_file: dict[str, list[tuple[int, int]]] = {}
+
+    def add_span(file_path: str, start_line: int, end_line: int, pad: int = 10) -> None:
+        norm = normalize_path(file_path)
+        lines = get_lines(norm)
+        if not lines:
+            return
+        lo = max(1, start_line - pad)
+        hi = min(len(lines), max(start_line, end_line) + pad)
+        if lo <= hi:
+            ranges_by_file.setdefault(norm, []).append((lo, hi))
+
+    fn_map = fact_index.functions_by_id if fact_index is not None else {fn.id: fn for fn in facts.functions}
+    for anchor in (candidate.source, candidate.sink):
+        fn_ids = [fid for fid in function_ids_for_anchor(anchor, facts, fact_index=fact_index) if fid in fn_map]
+        if not fn_ids:
+            add_span(anchor.file, anchor.start_line, anchor.end_line, pad=8)
+            continue
+        for fid in fn_ids:
+            fn = fn_map[fid]
+            if fn.anchor.end_line - fn.anchor.start_line <= 120:
+                add_span(fn.anchor.file, max(1, fn.anchor.start_line - 1), fn.anchor.end_line, pad=0)
+            else:
+                lo = max(fn.anchor.start_line, anchor.start_line - 24)
+                hi = min(fn.anchor.end_line, anchor.end_line + 24)
+                add_span(fn.anchor.file, lo, hi, pad=0)
+
+    for step in candidate.steps[:6]:
+        for anchor in (step.from_anchor, step.to_anchor):
+            if anchor is not None and anchor.file:
+                step_fn_ids = [fid for fid in function_ids_for_anchor(anchor, facts, fact_index=fact_index) if fid in fn_map]
+                if not step_fn_ids:
+                    add_span(anchor.file, anchor.start_line, anchor.end_line, pad=3)
+                else:
+                    for fid in step_fn_ids:
+                        fn = fn_map[fid]
+                        lo = max(fn.anchor.start_line, anchor.start_line - 3)
+                        hi = min(fn.anchor.end_line, anchor.end_line + 3)
+                        add_span(fn.anchor.file, lo, hi, pad=0)
+
+    return {path: merge_line_ranges(spans, max_lines=160) for path, spans in ranges_by_file.items()}
+
+
+_ROUTE_LITERAL_RE = re.compile(
+    r"((?:@[\w.]*\b(?:route|get|post|put|patch|delete|api_route)|@(?:WebServlet|RequestMapping|GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping))\s*\(\s*(?:(?:urlPatterns|value|path)\s*=\s*\{?\s*)?)(['\"])(?:\\.|(?!\2).)*\2"
+)
+_TRIAGE_STOPWORDS = {
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "check",
+    "checked",
+    "checks",
+    "class",
+    "code",
+    "const",
+    "def",
+    "echo",
+    "elif",
+    "else",
+    "except",
+    "false",
+    "file",
+    "finally",
+    "for",
+    "from",
+    "function",
+    "guard",
+    "if",
+    "import",
+    "in",
+    "is",
+    "it",
+    "let",
+    "line",
+    "lines",
+    "new",
+    "none",
+    "not",
+    "null",
+    "of",
+    "on",
+    "or",
+    "php",
+    "positive",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "route",
+    "safe",
+    "sink",
+    "source",
+    "static",
+    "that",
+    "the",
+    "this",
+    "throw",
+    "throws",
+    "to",
+    "true",
+    "try",
+    "var",
+    "void",
+    "was",
+    "with",
+}
+
+
+def _strip_line_comments_preserving_strings(line: str, ext: str, in_block_comment: bool) -> tuple[str, bool]:
+    out: list[str] = []
+    i = 0
+    n = len(line)
+    quote: str | None = None
+    escaped = False
+    is_python = ext == ".py"
+    c_style = ext in {".java", ".js", ".jsx", ".ts", ".tsx", ".go", ".php"}
+
+    while i < n:
+        if in_block_comment:
+            end_idx = line.find("*/", i)
+            if end_idx == -1:
+                return "".join(out).rstrip(), True
+            i = end_idx + 2
+            in_block_comment = False
+            continue
+        ch = line[i]
+        if quote is not None:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if is_python and ch == "#":
+            break
+        if c_style and line.startswith("//", i):
+            break
+        if c_style and line.startswith("/*", i):
+            in_block_comment = True
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out).rstrip(), in_block_comment
+
+
+def _sanitize_triage_code_lines(lines: list[str], file_path: str) -> list[str]:
+    """Strip comments and route URL literals so benchmark names/paths cannot leak into triage."""
+
+    ext = Path(file_path).suffix.lower()
+    sanitized: list[str] = []
+    in_block = False
+    for line in lines:
+        cleaned, in_block = _strip_line_comments_preserving_strings(line, ext, in_block)
+        cleaned = _ROUTE_LITERAL_RE.sub(r"\1\2<route>\2", cleaned)
+        sanitized.append(cleaned)
+    return sanitized
+
+
+def _build_triage_batches(
+    repo_path: Path,
+    facts: CodeFacts,
+    candidates: list[TraceCandidate],
+    *,
+    fact_index: _FactIndex,
+    batch_size: int = 8,
+    max_batch_chars: int = 24000,
+) -> list[dict[str, Any]]:
+    ordered = sorted(
+        candidates,
+        key=lambda item: (normalize_path(item.sink.file), item.sink.start_line, item.source.start_line, item.id),
+    )
+    file_lines_cache: dict[str, list[str]] = {}
+    sanitized_lines_cache: dict[str, list[str]] = {}
+    file_alias_map: dict[str, str] = {}
+
+    def get_alias(raw_path: str) -> str:
+        norm = normalize_path(raw_path)
+        if norm not in file_alias_map:
+            ext = Path(norm).suffix.lower() or ".txt"
+            file_alias_map[norm] = f"mod_{len(file_alias_map) + 1}{ext}"
+        return file_alias_map[norm]
+
+    def get_sanitized_lines(norm_path: str) -> list[str]:
+        if norm_path not in sanitized_lines_cache:
+            raw_lines = file_lines_cache.get(norm_path)
+            if raw_lines is None:
+                raw_lines = safe_context_file_lines(repo_path, norm_path)
+                file_lines_cache[norm_path] = raw_lines
+            sanitized_lines_cache[norm_path] = _sanitize_triage_code_lines(raw_lines, norm_path)
+        return sanitized_lines_cache[norm_path]
+
+    def mask_paths(text: str, related_paths: set[str]) -> str:
+        masked = text
+        for raw_p in sorted(related_paths, key=len, reverse=True):
+            alias = get_alias(raw_p)
+            masked = masked.replace(raw_p, alias)
+            base = Path(raw_p).name
+            if base and base in masked:
+                masked = masked.replace(base, alias)
+        return masked
+
+    batches: list[dict[str, Any]] = []
+    current_items: list[dict[str, Any]] = []
+    current_candidates: list[TraceCandidate] = []
+    current_ranges: dict[str, list[tuple[int, int]]] = {}
+    current_grounding: dict[str, tuple[set[int], str]] = {}
+    approx_chars = 0
+
+    def flush() -> None:
+        nonlocal current_items, current_candidates, current_ranges, current_grounding, approx_chars
+        if not current_candidates:
+            return
+        snippets: list[dict[str, Any]] = []
+        for file_path, raw_ranges in sorted(current_ranges.items(), key=lambda kv: get_alias(kv[0])):
+            lines = get_sanitized_lines(file_path)
+            if not lines:
+                continue
+            alias = get_alias(file_path)
+            for lo, hi in merge_line_ranges(raw_ranges, max_lines=180):
+                code = render_context_lines(lines, lo, hi, max_line_chars=300)
+                snippets.append({"file": alias, "startLine": lo, "endLine": hi, "code": code})
+        prompt = json.dumps(
+            {
+                "task": "Review each candidate finding against the provided code snippets and identify only high-confidence false positives.",
+                "candidates": current_items,
+                "codeContext": snippets,
+            },
+            ensure_ascii=False,
+        )
+        batches.append(
+            {
+                "candidates": list(current_candidates),
+                "prompt": prompt,
+                "grounding_by_id": dict(current_grounding),
+            }
+        )
+        current_items = []
+        current_candidates = []
+        current_ranges = {}
+        current_grounding = {}
+        approx_chars = 0
+
+    for candidate in ordered:
+        c_ranges = _collect_candidate_code_ranges(candidate, facts, file_lines_cache, repo_path, fact_index=fact_index)
+        cand_allowed_lines: set[int] = set()
+        cand_snippet_parts: list[str] = []
+        for fpath, spans in c_ranges.items():
+            s_lines = get_sanitized_lines(fpath)
+            for lo, hi in spans:
+                cand_allowed_lines.update(range(lo, hi + 1))
+                if s_lines:
+                    cand_snippet_parts.append(render_context_lines(s_lines, lo, hi, max_line_chars=300))
+
+        related_paths = {
+            normalize_path(candidate.source.file),
+            normalize_path(candidate.sink.file),
+            *(normalize_path(s.file) for s in candidate.sanitizers),
+            *(normalize_path(a.file) for st in candidate.steps[:5] for a in (st.from_anchor, st.to_anchor) if a and a.file),
+            *c_ranges.keys(),
+        }
+        steps_summary = [
+            mask_paths(
+                f"{step.kind}: {step.from_anchor.file if step.from_anchor else '?'}:{step.from_anchor.start_line if step.from_anchor else '?'} -> "
+                f"{step.to_anchor.file if step.to_anchor else '?'}:{step.to_anchor.start_line if step.to_anchor else '?'} ({step.explanation[:120]})",
+                related_paths,
+            )
+            for step in candidate.steps[:5]
+        ]
+        item_payload = {
+            "id": candidate.id,
+            "vulnClass": candidate.vuln_class,
+            "taxonomyId": candidate.taxonomy_id,
+            "cweIds": list(candidate.cwe_ids or []),
+            "source": {"file": get_alias(candidate.source.file), "line": candidate.source.start_line},
+            "sink": {"file": get_alias(candidate.sink.file), "line": candidate.sink.start_line},
+            "sanitizers": [f"{get_alias(s.file)}:{s.start_line}" for s in candidate.sanitizers[:4]],
+            "steps": steps_summary,
+            "staticEvidence": mask_paths(candidate.static_evidence[:320], related_paths),
+        }
+        added_chars = len(json.dumps(item_payload, ensure_ascii=False))
+        for fpath, spans in c_ranges.items():
+            if fpath not in current_ranges:
+                lines = get_sanitized_lines(fpath)
+                added_chars += sum(len(lines[ln - 1]) + 6 for lo, hi in spans for ln in range(lo, hi + 1) if 1 <= ln <= len(lines))
+        if current_candidates and (len(current_candidates) >= max(1, batch_size) or approx_chars + added_chars > max_batch_chars):
+            flush()
+        current_candidates.append(candidate)
+        current_items.append(item_payload)
+        current_grounding[candidate.id] = (cand_allowed_lines, "\n".join(cand_snippet_parts))
+        for fpath, spans in c_ranges.items():
+            current_ranges.setdefault(fpath, []).extend(spans)
+        approx_chars += added_chars
+
+    flush()
+    return batches
+
+
+def _is_triage_fp_grounded(reason: str, candidate: TraceCandidate, allowed_lines: set[int], snippet_text: str) -> bool:
+    clean = reason.strip()
+    if len(clean) < 8:
+        return False
+    scrubbed = re.sub(r"\bCWE-\d+\b", " ", clean, flags=re.I)
+    scrubbed = re.sub(r"\bmod_\d+\b", " ", scrubbed, flags=re.I)
+
+    cited_lines: set[int] = set()
+    for m in re.finditer(r"(?:line|lines|ln)\s*[:#]?\s*(\d{1,6})(?:\s*[-~–to]+\s*(\d{1,6}))?", scrubbed, re.I):
+        cited_lines.add(int(m.group(1)))
+        if m.group(2):
+            cited_lines.add(int(m.group(2)))
+    for m in re.finditer(r"\bL(\d{1,6})\b|(?:[A-Za-z0-9_.-]+\.[A-Za-z0-9]+):(\d{1,6})\b|第\s*(\d{1,6})\s*行", scrubbed):
+        num = m.group(1) or m.group(2) or m.group(3)
+        if num:
+            cited_lines.add(int(num))
+
+    if not (cited_lines & allowed_lines):
+        return False
+
+    snippet_symbols = {
+        tok
+        for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", snippet_text)
+        if tok.lower() not in _TRIAGE_STOPWORDS and not re.fullmatch(r"mod_\d+", tok, re.I)
+    }
+    if not snippet_symbols:
+        return True
+    reason_tokens = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", clean))
+    return bool(reason_tokens & snippet_symbols)
+
+
+def triage_candidates_with_llm(
+    repo_path: Path,
+    facts: CodeFacts,
+    candidates: list[TraceCandidate],
+    config: LLMConfig,
+    *,
+    batch_size: int = 8,
+    fact_index: _FactIndex | None = None,
+) -> tuple[list[TraceCandidate], dict[str, Any]]:
+    """Review candidates with the LLM to filter grounded high-confidence false positives.
+
+    Fail-closed toward keeping findings whenever a batch errors, times out, or
+    returns low/medium confidence or ungrounded rationale. Preserves both full
+    and triaged candidate sets in diagnostics for transparent recall/FPR evaluation.
+    """
+
+    started = time.monotonic()
+    all_snapshots = [candidate.to_dict() for candidate in candidates]
+    diagnostics: dict[str, Any] = {
+        "enabled": bool(config.enabled and config.triage_enabled),
+        "model": config.model if config.enabled else None,
+        "all_count": len(candidates),
+        "kept_count": len(candidates),
+        "filtered_count": 0,
+        "batches_total": 0,
+        "batches_succeeded": 0,
+        "batches_failed": 0,
+        "timed_out": False,
+        "elapsed_seconds": 0.0,
+        "all_fingerprints": [candidate.fingerprint for candidate in candidates],
+        "kept_fingerprints": [candidate.fingerprint for candidate in candidates],
+        "filtered_fingerprints": [],
+        "filtered": [],
+        "decisions": [],
+        "all_candidates": all_snapshots,
+        "verified_candidates": list(all_snapshots),
+        "errors": [],
+    }
+    if not config.enabled or not candidates:
+        return list(candidates), diagnostics
+
+    resolved_index = fact_index or _build_fact_index(facts)
+    batches = _build_triage_batches(repo_path, facts, candidates, fact_index=resolved_index, batch_size=batch_size)
+    diagnostics["batches_total"] = len(batches)
+    if not batches:
+        return list(candidates), diagnostics
+
+    system_prompt = with_output_contract(TRIAGE_SYSTEM_PROMPT, TRIAGE_OUTPUT_CONTRACT)
+    workers = max(1, min(12, int(config.concurrency or 1), len(batches)))
+    request_timeout = max(10, min(600, int(config.timeout_seconds or 60)))
+    waves = max(1, (len(batches) + workers - 1) // workers)
+    stage_timeout = min(3600, max(120, waves * request_timeout * 2))
+
+    def run_one(prompt_text: str) -> dict[str, Any]:
+        return parse_json_object(load_llm_json_response(prompt_text, config, system_prompt=system_prompt, temperature=0.0))
+
+    batch_results: dict[int, dict[str, Any]] = {}
+    failed_indices: list[int] = []
+    deadline = time.monotonic() + stage_timeout
+
+    def execute_wave(indices: list[int]) -> list[int]:
+        wave_failed: list[int] = []
+        executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="auditforge-llm-triage")
+        futures = {executor.submit(run_one, batches[idx]["prompt"]): idx for idx in indices}
+        pending = set(futures)
+        try:
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    diagnostics["timed_out"] = True
+                    for future in pending:
+                        future.cancel()
+                        wave_failed.append(futures[future])
+                    break
+                completed, pending = wait(pending, timeout=min(remaining, 1.0), return_when=FIRST_COMPLETED)
+                for future in completed:
+                    idx = futures[future]
+                    try:
+                        parsed = future.result()
+                    except Exception as exc:  # noqa: BLE001 - fail-closed toward keeping candidate
+                        diagnostics["errors"].append({"batch": idx, "error": str(exc)})
+                        wave_failed.append(idx)
+                        continue
+                    batch_results[idx] = parsed
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+        return wave_failed
+
+    failed_indices = execute_wave(list(range(len(batches))))
+    if failed_indices and not diagnostics["timed_out"] and (deadline - time.monotonic()) > 10:
+        failed_indices = execute_wave(failed_indices)
+
+    diagnostics["batches_succeeded"] = len(batch_results)
+    diagnostics["batches_failed"] = len(batches) - len(batch_results)
+
+    review_by_id: dict[str, tuple[dict[str, Any], set[int], str]] = {}
+    for idx, parsed in batch_results.items():
+        reviews = parsed.get("reviews")
+        if not isinstance(reviews, list):
+            continue
+        grounding_by_id = batches[idx]["grounding_by_id"]
+        batch_ids = {c.id for c in batches[idx]["candidates"]}
+        for item in reviews:
+            if not isinstance(item, dict):
+                continue
+            cid = str(item.get("id") or "").strip()
+            if cid in batch_ids and cid not in review_by_id:
+                cand_lines, cand_snippet = grounding_by_id.get(cid, (set(), ""))
+                review_by_id[cid] = (item, cand_lines, cand_snippet)
+
+    kept: list[TraceCandidate] = []
+    filtered_entries: list[dict[str, Any]] = []
+    decision_entries: list[dict[str, Any]] = []
+    for candidate in candidates:
+        matched = review_by_id.get(candidate.id)
+        decision = "keep"
+        confidence = "none"
+        reason = "batch unavailable or candidate not reviewed; preserved fail-closed"
+        is_fp = False
+        if matched is not None:
+            raw_review, allowed_lines, snippet_text = matched
+            decision = str(raw_review.get("decision") or "keep").strip().lower()
+            confidence = str(raw_review.get("confidence") or "low").strip().lower()
+            reason = str(raw_review.get("reason") or "").strip()
+            if decision == "false_positive" and confidence == "high":
+                if _is_triage_fp_grounded(reason, candidate, allowed_lines, snippet_text):
+                    is_fp = True
+                else:
+                    decision = "keep"
+                    reason = f"ungrounded false_positive rejected (preserved fail-closed): {reason}"
+        entry = {
+            "id": candidate.id,
+            "fingerprint": candidate.fingerprint,
+            "taxonomy_id": candidate.taxonomy_id,
+            "file": normalize_path(candidate.sink.file),
+            "sink_line": candidate.sink.start_line,
+            "decision": "false_positive" if is_fp else "keep",
+            "confidence": confidence,
+            "reason": reason,
+        }
+        decision_entries.append(entry)
+        if is_fp:
+            filtered_entries.append(entry)
+        else:
+            kept.append(candidate)
+
+    diagnostics["kept_count"] = len(kept)
+    diagnostics["filtered_count"] = len(filtered_entries)
+    diagnostics["kept_fingerprints"] = [candidate.fingerprint for candidate in kept]
+    diagnostics["filtered_fingerprints"] = [item["fingerprint"] for item in filtered_entries]
+    diagnostics["filtered"] = filtered_entries
+    diagnostics["decisions"] = decision_entries
+    diagnostics["verified_candidates"] = [candidate.to_dict() for candidate in kept]
+    diagnostics["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    return kept, diagnostics
+
+
 def trace_chain_status(candidate: TraceCandidate) -> tuple[bool, bool, bool]:
     edges = [(step.from_anchor, step.to_anchor) for step in candidate.steps if step.from_anchor is not None and step.to_anchor is not None]
     starts_at_source = any(anchors_overlap(candidate.source, source) for source, _ in edges)
@@ -691,27 +1461,61 @@ def evidence_anchor_key(anchor: CodeAnchor) -> tuple[str, int, int, str]:
     )
 
 
-def route_for_candidate(candidate: TraceCandidate, facts: CodeFacts) -> str | None:
-    source_functions = function_ids_for_anchor(candidate.source, facts)
-    sink_functions = function_ids_for_anchor(candidate.sink, facts)
+def route_for_candidate(
+    candidate: TraceCandidate,
+    facts: CodeFacts,
+    *,
+    fact_index: _FactIndex | None = None,
+) -> str | None:
+    source_functions = function_ids_for_anchor(candidate.source, facts, fact_index=fact_index)
+    sink_functions = function_ids_for_anchor(candidate.sink, facts, fact_index=fact_index)
     for function_ids in (source_functions & sink_functions, source_functions, sink_functions):
-        for route in facts.routes:
-            if route.handler_function_id and route.handler_function_id in function_ids:
-                return route.id
+        if fact_index is not None:
+            for function_id in function_ids:
+                routes = fact_index.routes_by_handler_id.get(function_id)
+                if routes:
+                    return routes[0].id
+        else:
+            for route in facts.routes:
+                if route.handler_function_id and route.handler_function_id in function_ids:
+                    return route.id
     return None
 
 
-def function_ids_for_anchor(anchor: CodeAnchor, facts: CodeFacts) -> set[str]:
+def function_ids_for_anchor(
+    anchor: CodeAnchor,
+    facts: CodeFacts,
+    *,
+    fact_index: _FactIndex | None = None,
+) -> set[str]:
+    file_lower = normalize_path(anchor.file).lower()
+    if fact_index is not None:
+        fn_pool = fact_index.functions_by_file_lower.get(file_lower, ())
+        collections = (
+            fact_index.sources_by_file_lower.get(file_lower, ()),
+            fact_index.sinks_by_file_lower.get(file_lower, ()),
+            fact_index.sanitizers_by_file_lower.get(file_lower, ()),
+        )
+    else:
+        fn_pool = facts.functions
+        collections = (facts.sources, facts.sinks, facts.sanitizers)
+
     function_ids = {
         function.id
-        for function in facts.functions
-        if normalize_path(function.anchor.file).lower() == normalize_path(anchor.file).lower()
+        for function in fn_pool
+        if normalize_path(function.anchor.file).lower() == file_lower
         and function.anchor.start_line <= anchor.start_line <= function.anchor.end_line
     }
-    for collection in (facts.sources, facts.sinks, facts.sanitizers):
-        for item in collection:
-            if item.enclosing_function_id and anchors_overlap(anchor, item.anchor):
-                function_ids.add(item.enclosing_function_id)
+    if not function_ids:
+        for collection in collections:
+            for item in collection:
+                if (
+                    item.enclosing_function_id
+                    and normalize_path(item.anchor.file).lower() == file_lower
+                    and item.anchor.start_line <= anchor.end_line
+                    and anchor.start_line <= item.anchor.end_line
+                ):
+                    function_ids.add(item.enclosing_function_id)
     return function_ids
 
 
@@ -719,12 +1523,16 @@ def effective_sanitizers_for_candidate(
     candidate: TraceCandidate,
     facts: CodeFacts,
     sink_matches: list[Any],
+    *,
+    fact_index: _FactIndex | None = None,
 ) -> list[Any]:
-    sink_function_ids = function_ids_for_anchor(candidate.sink, facts)
+    sink_function_ids = function_ids_for_anchor(candidate.sink, facts, fact_index=fact_index)
     sink_kinds = {sink.kind for sink in sink_matches}
+    sink_file_lower = normalize_path(candidate.sink.file).lower()
+    san_pool = fact_index.sanitizers_by_file_lower.get(sink_file_lower, ()) if fact_index is not None else facts.sanitizers
     effective: list[Any] = []
-    for sanitizer in facts.sanitizers:
-        if normalize_path(sanitizer.anchor.file).lower() != normalize_path(candidate.sink.file).lower():
+    for sanitizer in san_pool:
+        if normalize_path(sanitizer.anchor.file).lower() != sink_file_lower:
             continue
         if sanitizer.anchor.start_line > candidate.sink.start_line:
             continue
@@ -738,10 +1546,17 @@ def effective_sanitizers_for_candidate(
     return effective
 
 
-def security_guard_clues(candidate: TraceCandidate, facts: CodeFacts) -> list[Any]:
+def security_guard_clues(
+    candidate: TraceCandidate,
+    facts: CodeFacts,
+    *,
+    fact_index: _FactIndex | None = None,
+) -> list[Any]:
     if candidate.vuln_class not in {"auth", "authz"}:
         return []
-    sink_function_ids = function_ids_for_anchor(candidate.sink, facts)
+    sink_function_ids = function_ids_for_anchor(candidate.sink, facts, fact_index=fact_index)
+    sink_file_lower = normalize_path(candidate.sink.file).lower()
+    ctrl_pool = fact_index.control_flows_by_file_lower.get(sink_file_lower, ()) if fact_index is not None else facts.control_flows
     guard_pattern = re.compile(
         r"owner|ownership|role|permission|authorize|authorise|tenant|admin|current_user|user_id|account_id|"
         r"属主|归属|角色|权限|授权|租户|管理员|当前用户",
@@ -749,9 +1564,9 @@ def security_guard_clues(candidate: TraceCandidate, facts: CodeFacts) -> list[An
     )
     return [
         flow
-        for flow in facts.control_flows
+        for flow in ctrl_pool
         if flow.anchor.start_line <= candidate.sink.start_line
-        and normalize_path(flow.anchor.file).lower() == normalize_path(candidate.sink.file).lower()
+        and normalize_path(flow.anchor.file).lower() == sink_file_lower
         and (not sink_function_ids or flow.enclosing_function_id in sink_function_ids)
         and guard_pattern.search(flow.condition)
     ]
@@ -1151,7 +1966,7 @@ def _agent_id_for_source(kind: str, expression: str) -> str:
 
 
 def plan_llm_audit_tasks(facts: CodeFacts) -> list[LLMAuditTask]:
-    """Build deterministic, bounded module/entrypoint/sink slices for specialist agents."""
+    """Build deterministic, token-budgeted module/entrypoint/sink slices for specialist agents."""
 
     ordered_files = ordered_fact_files(facts)
     if not ordered_files:
@@ -1183,20 +1998,35 @@ def plan_llm_audit_tasks(facts: CodeFacts) -> list[LLMAuditTask]:
             scope_units.append(((file,), chunk, kind))
 
     packed_scopes = pack_llm_scope_units(facts, scope_units, MAX_AUDIT_TASKS_PER_AGENT)
+    adjacency = _build_call_adjacency(facts)
+    function_order = {function.id: index for index, function in enumerate(facts.functions)}
+    file_index = {path: index for index, path in enumerate(ordered_files)}
+    expanded_scopes: list[tuple[tuple[str, ...], tuple[str, ...], str, tuple[str, ...]]] = []
+    for files, function_ids, scope_kind in packed_scopes:
+        seed_set = set(function_ids)
+        expanded_ids = expand_related_function_ids(facts, seed_set, adjacency=adjacency)
+        expanded_files = set(files)
+        expanded_files.update(normalize_path(function.anchor.file) for function in facts.functions if function.id in expanded_ids)
+        expanded_scopes.append(
+            (
+                tuple(sorted(expanded_files, key=lambda path: file_index.get(path, 10**9))),
+                tuple(sorted(expanded_ids, key=lambda fid: function_order.get(fid, 10**9))),
+                scope_kind,
+                tuple(sorted(seed_set, key=lambda fid: function_order.get(fid, 10**9))),
+            )
+        )
+
     tasks: list[LLMAuditTask] = []
     for agent in LLM_AUDIT_AGENTS:
-        for scope_index, (files, function_ids, scope_kind) in enumerate(packed_scopes, 1):
-            expanded_ids = expand_related_function_ids(facts, set(function_ids))
-            expanded_files = set(files)
-            expanded_files.update(normalize_path(function.anchor.file) for function in facts.functions if function.id in expanded_ids)
+        for scope_index, (scope_files, scope_fn_ids, scope_kind, seed_fn_ids) in enumerate(expanded_scopes, 1):
             tasks.append(
                 LLMAuditTask(
                     id=f"{agent.id}:{scope_index:03d}",
                     agent=agent,
-                    files=tuple(path for path in ordered_files if path in expanded_files),
-                    function_ids=tuple(function.id for function in facts.functions if function.id in expanded_ids),
+                    files=scope_files,
+                    function_ids=scope_fn_ids,
                     scope_kind=scope_kind,
-                    seed_function_ids=tuple(function.id for function in facts.functions if function.id in set(function_ids)),
+                    seed_function_ids=seed_fn_ids,
                 )
             )
     return tasks
@@ -1235,25 +2065,54 @@ def scope_has_entry_or_sink(facts: CodeFacts, function_ids: set[str]) -> bool:
     )
 
 
+def _build_call_adjacency(facts: CodeFacts) -> dict[str, set[str]]:
+    adjacency: dict[str, set[str]] = {function.id: set() for function in facts.functions}
+    callers_by_callee: dict[str, set[str]] = {}
+    edges = resolved_call_edges(facts)
+    for caller_id, callee_id, _ in edges:
+        adjacency.setdefault(caller_id, set()).add(callee_id)
+        callers_by_callee.setdefault(callee_id, set()).add(caller_id)
+    # Only propagate reverse caller edges for low fan-in helpers so shared
+    # formatting/utility functions do not pull unrelated routes into every scope.
+    for callee_id, caller_ids in callers_by_callee.items():
+        if len(caller_ids) <= 4:
+            adjacency.setdefault(callee_id, set()).update(caller_ids)
+    return adjacency
+
+
 def pack_llm_scope_units(
     facts: CodeFacts,
     units: list[tuple[tuple[str, ...], tuple[str, ...], str]],
     limit: int,
+    *,
+    max_scope_bytes: int = MAX_SCOPE_PACK_BYTES,
+    max_functions: int = MAX_FUNCTIONS_PER_PACKED_SCOPE,
 ) -> list[tuple[tuple[str, ...], tuple[str, ...], str]]:
     if len(units) <= limit:
         return units
 
     byte_sizes = {normalize_path(item.path): max(1, item.bytes) for item in facts.files}
-    bins: list[list[tuple[tuple[str, ...], tuple[str, ...], str]]] = [[] for _ in range(limit)]
-    weights = [0] * limit
-    weighted_units = [
-        (sum(byte_sizes.get(file, 1) for file in files) + len(function_ids) * 500, index, (files, function_ids, kind))
-        for index, (files, function_ids, kind) in enumerate(units)
-    ]
-    for weight, _, unit in sorted(weighted_units, key=lambda item: (-item[0], item[1])):
-        target = min(range(limit), key=lambda index: (weights[index], index))
-        bins[target].append(unit)
-        weights[target] += weight
+    prioritized = sorted(
+        units,
+        key=lambda unit: 0 if unit[2] == "entrypoint_sink_slice" else 1,
+    )
+    bins: list[list[tuple[tuple[str, ...], tuple[str, ...], str]]] = []
+    current_bucket: list[tuple[tuple[str, ...], tuple[str, ...], str]] = []
+    current_bytes = 0
+    current_functions = 0
+    for files, function_ids, kind in prioritized:
+        unit_bytes = sum(byte_sizes.get(file, 1) for file in files)
+        unit_funcs = len(function_ids)
+        if current_bucket and (current_bytes + unit_bytes > max_scope_bytes or current_functions + unit_funcs > max_functions):
+            bins.append(current_bucket)
+            current_bucket = []
+            current_bytes = 0
+            current_functions = 0
+        current_bucket.append((files, function_ids, kind))
+        current_bytes += unit_bytes
+        current_functions += unit_funcs
+    if current_bucket:
+        bins.append(current_bucket)
 
     packed: list[tuple[tuple[str, ...], tuple[str, ...], str]] = []
     file_order = {path: index for index, path in enumerate(ordered_fact_files(facts))}
@@ -1270,14 +2129,17 @@ def pack_llm_scope_units(
     return packed
 
 
-def expand_related_function_ids(facts: CodeFacts, seed_ids: set[str]) -> set[str]:
+def expand_related_function_ids(
+    facts: CodeFacts,
+    seed_ids: set[str],
+    *,
+    adjacency: dict[str, set[str]] | None = None,
+) -> set[str]:
     if not seed_ids:
         return set()
     order = {function.id: index for index, function in enumerate(facts.functions)}
-    adjacency: dict[str, set[str]] = {function.id: set() for function in facts.functions}
-    for caller_id, callee_id, _ in resolved_call_edges(facts):
-        adjacency.setdefault(caller_id, set()).add(callee_id)
-        adjacency.setdefault(callee_id, set()).add(caller_id)
+    if adjacency is None:
+        adjacency = _build_call_adjacency(facts)
 
     expanded = set(seed_ids)
     queue = [(function_id, 0) for function_id in sorted(seed_ids, key=lambda item: order.get(item, 10**9))]
@@ -1351,9 +2213,56 @@ def module_name_for_context(file_path: str) -> str:
     return ".".join(part for part in parts if part)
 
 
-def slice_code_facts(facts: CodeFacts, task: LLMAuditTask) -> CodeFacts:
+def _gather_indexed_facts(
+    files: set[str],
+    function_ids: set[str],
+    by_func: dict[str, list[tuple[int, Any]]],
+    unscoped_by_file: dict[str, list[tuple[int, Any]]],
+) -> list[Any]:
+    selected: dict[int, Any] = {}
+    for fid in function_ids:
+        for idx, item in by_func.get(fid, ()):
+            selected[idx] = item
+    for path in files:
+        for idx, item in unscoped_by_file.get(path, ()):
+            selected[idx] = item
+    return [selected[idx] for idx in sorted(selected)]
+
+
+def slice_code_facts(
+    facts: CodeFacts,
+    task: LLMAuditTask,
+    *,
+    fact_index: _FactIndex | None = None,
+) -> CodeFacts:
     files = {normalize_path(path) for path in task.files}
     function_ids = set(task.function_ids)
+
+    if fact_index is not None:
+        return CodeFacts(
+            files=[item for path in files for item in fact_index.files_by_path.get(path, ())],
+            functions=[item for item in facts.functions if item.id in function_ids]
+            if len(function_ids) > 200
+            else sorted(
+                (fact_index.functions_by_id[fid] for fid in function_ids if fid in fact_index.functions_by_id),
+                key=lambda fn: (normalize_path(fn.anchor.file), fn.anchor.start_line),
+            ),
+            classes=[item for path in files for item in fact_index.classes_by_file_norm.get(path, ())],
+            routes=[
+                *(route for fid in function_ids for route in fact_index.routes_by_handler_id.get(fid, ())),
+                *(route for path in files for route in fact_index.unscoped_routes_by_file_norm.get(path, ())),
+            ],
+            call_sites=_gather_indexed_facts(files, function_ids, fact_index.call_sites_by_func, fact_index.unscoped_calls_by_file),
+            data_flows=_gather_indexed_facts(files, function_ids, fact_index.data_flows_by_func, fact_index.unscoped_flows_by_file),
+            control_flows=_gather_indexed_facts(
+                files, function_ids, fact_index.control_flows_by_func, fact_index.unscoped_controls_by_file
+            ),
+            sources=_gather_indexed_facts(files, function_ids, fact_index.sources_by_func, fact_index.unscoped_sources_by_file),
+            sinks=_gather_indexed_facts(files, function_ids, fact_index.sinks_by_func, fact_index.unscoped_sinks_by_file),
+            sanitizers=_gather_indexed_facts(files, function_ids, fact_index.sanitizers_by_func, fact_index.unscoped_sanitizers_by_file),
+            imports=[item for path in files for item in fact_index.imports_by_file_norm.get(path, ())],
+            analysis_diagnostics=facts.analysis_diagnostics,
+        )
 
     def include(anchor: CodeAnchor, enclosing_function_id: str | None) -> bool:
         if enclosing_function_id:
@@ -1380,12 +2289,26 @@ def slice_code_facts(facts: CodeFacts, task: LLMAuditTask) -> CodeFacts:
     )
 
 
-def build_connected_call_subgraph(facts: CodeFacts, task: LLMAuditTask) -> dict[str, Any]:
+def build_connected_call_subgraph(
+    facts: CodeFacts,
+    task: LLMAuditTask,
+    *,
+    fact_index: _FactIndex | None = None,
+) -> dict[str, Any]:
     function_ids = set(task.function_ids)
     seed_ids = set(task.seed_function_ids)
-    route_ids = {route.handler_function_id for route in facts.routes if route.handler_function_id}
-    source_ids = {source.enclosing_function_id for source in facts.sources if source.enclosing_function_id}
-    sink_ids = {sink.enclosing_function_id for sink in facts.sinks if sink.enclosing_function_id}
+    if fact_index is not None:
+        route_ids = set(fact_index.routes_by_handler_id)
+        source_ids = set(fact_index.sources_by_func)
+        sink_ids = set(fact_index.sinks_by_func)
+        scoped_functions = [fact_index.functions_by_id[fid] for fid in task.function_ids if fid in fact_index.functions_by_id]
+        raw_edges = fact_index.get_edges_for_functions(function_ids)
+    else:
+        route_ids = {route.handler_function_id for route in facts.routes if route.handler_function_id}
+        source_ids = {source.enclosing_function_id for source in facts.sources if source.enclosing_function_id}
+        sink_ids = {sink.enclosing_function_id for sink in facts.sinks if sink.enclosing_function_id}
+        scoped_functions = [function for function in facts.functions if function.id in function_ids]
+        raw_edges = resolved_call_edges(facts)
     nodes = [
         {
             "id": function.id,
@@ -1404,11 +2327,10 @@ def build_connected_call_subgraph(facts: CodeFacts, task: LLMAuditTask) -> dict[
                 if function.id in members
             ],
         }
-        for function in facts.functions
-        if function.id in function_ids
+        for function in scoped_functions
     ]
     edges = []
-    for caller_id, callee_id, call in resolved_call_edges(facts):
+    for caller_id, callee_id, call in raw_edges:
         if caller_id not in function_ids or callee_id not in function_ids:
             continue
         edges.append(
@@ -1528,8 +2450,9 @@ def build_llm_prompt(
     custom_instructions: str | None = None,
     *,
     audit_task: LLMAuditTask | None = None,
+    fact_index: _FactIndex | None = None,
 ) -> str:
-    prompt_facts = slice_code_facts(facts, audit_task) if audit_task else facts
+    prompt_facts = slice_code_facts(facts, audit_task, fact_index=fact_index) if audit_task else facts
     source_limit = 32 if audit_task else 80
     sink_limit = 32 if audit_task else 80
     sanitizer_limit = 16 if audit_task else 80
@@ -1573,13 +2496,22 @@ def build_llm_prompt(
         }
         for sanitizer in selected_sanitizers
     ]
+    if audit_task:
+        task_files = {normalize_path(path) for path in audit_task.files}
+        scoped_existing = [
+            candidate
+            for candidate in existing_candidates
+            if normalize_path(candidate.source.file) in task_files or normalize_path(candidate.sink.file) in task_files
+        ]
+    else:
+        scoped_existing = existing_candidates
     existing_keys = [
         {
             "vulnClass": candidate.vuln_class,
             "source": f"{candidate.source.file}:{candidate.source.start_line}",
             "sink": f"{candidate.sink.file}:{candidate.sink.start_line}",
         }
-        for candidate in select_prompt_items(existing_candidates, 50 if audit_task else len(existing_candidates))
+        for candidate in select_prompt_items(scoped_existing, 50 if audit_task else len(scoped_existing))
     ]
     facts_payload = {
         "routes": [route.to_dict() for route in select_prompt_items_with_focus(prompt_facts.routes, route_limit, focus_anchor_lines)],
@@ -1613,7 +2545,9 @@ def build_llm_prompt(
         audit_task.files if audit_task else tuple(item.path for item in prompt_facts.files),
         max_chars=structure_budget,
     )
-    call_subgraph = build_connected_call_subgraph(facts, audit_task) if audit_task else {"depth": 0, "nodes": [], "edges": []}
+    call_subgraph = (
+        build_connected_call_subgraph(facts, audit_task, fact_index=fact_index) if audit_task else {"depth": 0, "nodes": [], "edges": []}
+    )
     anchor_facts = CodeFacts(sources=selected_sources, sinks=selected_sinks, sanitizers=selected_sanitizers) if audit_task else prompt_facts
     anchor_payload = build_anchor_context(repo_path, anchor_facts, max_chars=anchor_budget)
     task_instructions = (custom_instructions or DEFAULT_CANDIDATE_USER_PROMPT).strip() or DEFAULT_CANDIDATE_USER_PROMPT
@@ -1823,6 +2757,8 @@ def build_llm_prompt(
             "candidates": [
                 {
                     "vulnClass": "injection|xss|ssrf|auth|authz",
+                    "taxonomyId": "optional taxonomy_id such as sql_injection",
+                    "cweIds": ["CWE-89"],
                     "source": {"file": "path", "startLine": 1, "endLine": 1, "symbol": "optional"},
                     "sink": {"file": "path", "startLine": 1, "endLine": 1, "symbol": "optional"},
                     "steps": [
@@ -1885,12 +2821,14 @@ def prompt_context_manifest(
     facts: CodeFacts,
     task: LLMAuditTask,
     context_budget: int,
+    *,
+    fact_index: _FactIndex | None = None,
 ) -> dict[str, Any]:
     """Record what a specialist actually received without persisting source."""
 
     payload = json.loads(prompt)
     prompt_facts = payload.get("facts") if isinstance(payload.get("facts"), dict) else {}
-    scoped = slice_code_facts(facts, task)
+    scoped = slice_code_facts(facts, task, fact_index=fact_index)
     applicable_sinks = [sink for sink in scoped.sinks if sink.vuln_class in task.agent.vuln_classes]
     expected = {
         "routes": len(scoped.routes),
@@ -2315,6 +3253,31 @@ def parse_json_object(raw: str) -> dict[str, Any]:
     return data
 
 
+_TAXONOMY_TO_CWES: dict[str, list[str]] = {tax: list(cwes) for tax, cwes in SINK_TAXONOMY.values()}
+_CWE_RE = re.compile(r"CWE[-_ ]*(\d+)", re.I)
+
+
+def _normalize_cwe_ids(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        match = _CWE_RE.search(str(item or ""))
+        if not match:
+            continue
+        cwe = f"CWE-{int(match.group(1))}"
+        if cwe not in normalized:
+            normalized.append(cwe)
+    return normalized
+
+
+def _normalize_taxonomy_id(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", value.strip().lower()).strip("_")
+    return cleaned or None
+
+
 def normalize_llm_candidates(
     repo_path: Path,
     parsed: dict[str, Any],
@@ -2322,6 +3285,8 @@ def normalize_llm_candidates(
     max_candidates: int,
     diagnostics: dict[str, Any],
     allowed_anchor_lines: set[tuple[str, int]],
+    *,
+    facts: CodeFacts | None = None,
 ) -> list[TraceCandidate]:
     if "candidates" not in parsed:
         diagnostics["rejected"].append(
@@ -2357,7 +3322,7 @@ def normalize_llm_candidates(
     accepted: list[TraceCandidate] = []
     for raw in raw_candidates[:max_candidates]:
         try:
-            candidate = normalize_one_candidate(repo_path, raw, len(accepted) + 1, allowed_anchor_lines)
+            candidate = normalize_one_candidate(repo_path, raw, len(accepted) + 1, allowed_anchor_lines, facts=facts)
         except Exception as exc:  # noqa: BLE001 - keep scanning after bad LLM item
             diagnostics["rejected"].append({"reason": str(exc), "candidate": raw})
             continue
@@ -2382,6 +3347,8 @@ def normalize_one_candidate(
     raw: dict[str, Any],
     sequence: int,
     allowed_anchor_lines: set[tuple[str, int]],
+    *,
+    facts: CodeFacts | None = None,
 ) -> TraceCandidate:
     if not isinstance(raw, dict):
         raise ValueError("candidate must be an object")
@@ -2404,6 +3371,27 @@ def normalize_one_candidate(
     static_evidence = required_text(raw, ("staticEvidence", "static_evidence"), "staticEvidence", 1200)
     verification_hint = required_text(raw, ("verificationHint", "verification_hint"), "verificationHint", 800)
     sanitizers = [normalize_anchor(repo_path, item, "sanitizer", allowed_anchor_lines) for item in raw_sanitizers]
+    taxonomy_id = _normalize_taxonomy_id(raw.get("taxonomyId") or raw.get("taxonomy_id"))
+    cwe_ids = _normalize_cwe_ids(raw.get("cweIds") or raw.get("cwe_ids"))
+    if facts is not None and (not cwe_ids or not taxonomy_id):
+        sink_file = normalize_path(sink.file)
+        matching_sinks = [
+            item
+            for item in facts.sinks
+            if normalize_path(item.anchor.file) == sink_file
+            and item.anchor.start_line == sink.start_line
+            and item.vuln_class == vuln_class
+            and (item.cwe_ids or item.taxonomy_id)
+        ]
+        if matching_sinks:
+            taxonomies = {item.taxonomy_id for item in matching_sinks if item.taxonomy_id}
+            if not taxonomy_id and len(taxonomies) == 1:
+                taxonomy_id = next(iter(taxonomies))
+            cwe_sets = {tuple(item.cwe_ids) for item in matching_sinks if item.cwe_ids}
+            if not cwe_ids and len(cwe_sets) == 1:
+                cwe_ids = list(next(iter(cwe_sets)))
+    if not cwe_ids and taxonomy_id and taxonomy_id in _TAXONOMY_TO_CWES:
+        cwe_ids = list(_TAXONOMY_TO_CWES[taxonomy_id])
     return TraceCandidate(
         id=f"LLM-{vuln_class.upper()}-TRACE-{sequence:03d}",
         vuln_class=vuln_class,  # type: ignore[arg-type]
@@ -2418,6 +3406,8 @@ def normalize_one_candidate(
         route_id=None,
         origin="llm",
         reviewer_notes=[str(item)[:500] for item in raw_notes],
+        taxonomy_id=taxonomy_id,
+        cwe_ids=cwe_ids,
     )
 
 

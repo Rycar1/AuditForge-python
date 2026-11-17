@@ -20,11 +20,11 @@ def resolution_models_from_diagnostics(diagnostics: Mapping[str, Any] | None) ->
     if isinstance(explicit, Mapping):
         return {key: list(value) for key, value in explicit.items() if isinstance(value, list)}
     output: dict[str, list[Any]] = defaultdict(list)
-    for name in ("java_framework", "php_symbols"):
+    for name in ("java_framework", "php_symbols", "python_symbols"):
         model = diagnostics.get(name)
         if not isinstance(model, Mapping):
             continue
-        for key in ("receiver_types", "class_receiver_types", "implementation_types"):
+        for key in ("receiver_types", "class_receiver_types", "implementation_types", "package_names"):
             value = model.get(key)
             if isinstance(value, list):
                 output[key].extend(value)
@@ -61,6 +61,12 @@ class CallResolver:
         self.class_receiver_types: dict[tuple[str, str], tuple[str, ...]] = {}
         self.class_receiver_reasons: dict[tuple[str, str], str] = {}
         self.implementation_types: dict[str, tuple[str, ...]] = {}
+        package_names: dict[str, str] = {}
+        for item in _objects((framework_models or {}).get("package_names")):
+            file = _text(item.get("file"))
+            package = _canonical_symbol(_text(item.get("package")))
+            if file and package:
+                package_names[file] = package
 
         # Java framework bindings are extracted after language parsing because
         # field injection and interface implementation are repository-level
@@ -114,7 +120,7 @@ class CallResolver:
                 for type_name in _type_lookup_keys(class_name):
                     self.methods_by_class_name[(type_name, name)].append(function)
 
-            module = _module_name(file)
+            module = _module_name(file) or package_names.get(file, "")
             exact_key = f"{module}.{qualified}" if module else qualified
             self.functions_by_exact_key[exact_key].append(function)
             if function.class_id:
@@ -215,6 +221,18 @@ class CallResolver:
         receiver, separator, method = access.rpartition(".")
         if not separator or not receiver or not method:
             return None
+        stripped_receiver = receiver.strip()
+        ctor_match = re.match(r"^(?:new\s+([A-Za-z_][A-Za-z0-9_$.]*)|([A-Za-z_][A-Za-z0-9_$.]*))\s*\(", stripped_receiver)
+        if ctor_match:
+            ctor_type = _canonical_symbol(ctor_match.group(1) or ctor_match.group(2))
+            if ctor_type and (
+                ctor_match.group(1) or ctor_type.rsplit(".", 1)[-1][:1].isupper() or self._methods_for_type(ctor_type, method)
+            ):
+                ctor_types = list(self._implementations_for_type(ctor_type)) or [ctor_type]
+                ctor_matches = [function for type_name in ctor_types for function in self._methods_for_type(type_name, method)]
+                target = _select_method(_unique(ctor_matches), call)
+                if target is not None:
+                    return target, "constructor_receiver"
         # ``this.service.find`` and ``service.find`` describe the same
         # dependency-injected field.  Nested fluent expressions are deliberately
         # ignored; inferring their dynamic result type would be unsound.
@@ -231,19 +249,13 @@ class CallResolver:
             resolution_reason = self.class_receiver_reasons.get((caller.class_id, normalized), "framework_injection")
         if declared_types:
             implementation_types = [
-                implementation
-                for declared in declared_types
-                for implementation in self._implementations_for_type(declared)
+                implementation for declared in declared_types for implementation in self._implementations_for_type(declared)
             ]
             # An explicit interface -> implementation binding is stronger than
             # the interface declaration itself.  If multiple implementations
             # exist, stay unresolved rather than connecting arbitrary code.
             selected_types = implementation_types or list(declared_types)
-            matches = [
-                function
-                for type_name in selected_types
-                for function in self._methods_for_type(type_name, method)
-            ]
+            matches = [function for type_name in selected_types for function in self._methods_for_type(type_name, method)]
             target = _select_method(_unique(matches), call)
             if target is not None:
                 return target, resolution_reason
@@ -277,12 +289,23 @@ def _unique(functions: list[FunctionFact]) -> list[FunctionFact]:
 
 
 def _select_method(functions: list[FunctionFact], call: CallSiteFact) -> FunctionFact | None:
-    """Return a unique method, using arity only to disambiguate overloads."""
+    """Return a unique method, preferring same-file definitions and using arity to disambiguate."""
 
     if len(functions) == 1:
         return functions[0]
+    if not functions:
+        return None
+    same_file = [function for function in functions if function.anchor.file == call.anchor.file]
+    if len(same_file) == 1:
+        return same_file[0]
+    pool = same_file if same_file else functions
     argument_count = len(call.argument_sources) + len(call.keyword_sources)
-    matching_arity = [function for function in functions if len(function.params) == argument_count]
+    matching_arity = [
+        function
+        for function in pool
+        if (len(function.params) - (1 if function.class_id and function.params and function.params[0] in {"self", "cls"} else 0))
+        == argument_count
+    ]
     return matching_arity[0] if len(matching_arity) == 1 else None
 
 
@@ -320,6 +343,9 @@ def _type_lookup_keys(value: str) -> list[str]:
 
 
 def _model_resolution_reason(item: Mapping[str, Any]) -> str:
-    if _text(item.get("language")).lower() == "php":
+    explicit = _text(item.get("reason"))
+    if explicit:
+        return explicit
+    if _text(item.get("language")).lower() in {"php", "python"}:
         return "typed_receiver"
     return "framework_injection"
