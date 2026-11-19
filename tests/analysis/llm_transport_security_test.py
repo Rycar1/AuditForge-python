@@ -5,8 +5,8 @@ from threading import Thread
 
 import pytest
 
-from auditforge.llm_candidates import LLMConfig, validate_llm_base_url
-from auditforge.llm_candidates import test_llm_connection as check_connection
+from auditforge.analysis.llm_candidates import LLMConfig, validate_llm_base_url
+from auditforge.analysis.llm_candidates import test_llm_connection as check_connection
 
 
 def test_remote_llm_requires_https_and_rejects_embedded_credentials() -> None:

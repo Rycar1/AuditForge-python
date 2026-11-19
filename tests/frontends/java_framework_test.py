@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.scanner import scan_repo
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import scan_repo
 
 
 def test_spring_injection_reaches_mybatis_dynamic_sql(tmp_path) -> None:

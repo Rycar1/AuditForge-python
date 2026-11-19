@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from .models import CodeAnchor, CodeFacts, CodeGraph, TraceCandidate
-from .utils import normalize_path
+from ..core.models import CodeAnchor, CodeFacts, CodeGraph, TraceCandidate
+from ..core.utils import normalize_path
 
 SCHEMA_VERSION = 1
 MAX_BLINDSPOT_FILES = 24

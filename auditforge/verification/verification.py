@@ -14,7 +14,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
-from .models import CodeFacts, RouteFact, SourceFact, TraceCandidate, VerificationPlan, VerificationResult
+from ..core.models import CodeFacts, RouteFact, SourceFact, TraceCandidate, VerificationPlan, VerificationResult
 
 SAFE_GATES = [
     "只允许 HTTP(S) GET/HEAD 请求。",

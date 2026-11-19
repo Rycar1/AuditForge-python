@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.scanner import scan_repo
-from auditforge.semantic_findings import generate_semantic_candidates
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import scan_repo
+from auditforge.analysis.semantic_findings import generate_semantic_candidates
 
 
 def test_semantic_findings_detect_source_less_security_issues_without_secret_disclosure(tmp_path: Path) -> None:

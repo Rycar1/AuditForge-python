@@ -3,16 +3,16 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import auditforge.native_ast_bridge as native_ast_bridge
-from auditforge.java_go_analysis import analyze_java
-from auditforge.models import IndexedFile
-from auditforge.native_ast_bridge import (
+import auditforge.frontends.native_ast_bridge as native_ast_bridge
+from auditforge.analysis.scanner import SourceFile, scan_repo
+from auditforge.core.models import IndexedFile
+from auditforge.frontends.java_go_analysis import analyze_java
+from auditforge.frontends.native_ast_bridge import (
     _merge_structural_and_framework_facts,
     analyze_java_batch_with_ast,
     analyze_native_with_ast,
     native_payload_to_result,
 )
-from auditforge.scanner import SourceFile, scan_repo
 
 JAVA_SOURCE = (
     "class Controller {\n"
@@ -149,7 +149,7 @@ def test_scanner_uses_native_ast_and_retains_heuristic_sink_modelling(tmp_path: 
         return result, {"status": "ok", "reason": "fixture", "used": True, "fallback": False}
 
     monkeypatch.setattr(
-        "auditforge.native_ast_bridge.analyze_java_batch_with_ast",
+        "auditforge.frontends.native_ast_bridge.analyze_java_batch_with_ast",
         lambda sources: {source.file.path: fake_native(source) for source in sources},
     )
     facts = scan_repo(tmp_path)
@@ -167,9 +167,9 @@ def test_java_batch_returns_a_result_for_each_source_file(tmp_path: Path, monkey
     second = source_file(tmp_path / "second", "java")
     first = replace(first, file=replace(first.file, id="file:first", path="first/Controller.java"))
     second = replace(second, file=replace(second.file, id="file:second", path="second/Controller.java"))
-    monkeypatch.setattr("auditforge.native_ast_bridge._bridge_command", lambda _language: (["java"], None))
+    monkeypatch.setattr("auditforge.frontends.native_ast_bridge._bridge_command", lambda _language: (["java"], None))
     monkeypatch.setattr(
-        "auditforge.native_ast_bridge._run_java_batch",
+        "auditforge.frontends.native_ast_bridge._run_java_batch",
         lambda _command, sources, _cwd: ({source.file.path: structural_payload("java") for source in sources}, ""),
     )
 
@@ -201,13 +201,13 @@ def test_java_batch_uses_single_file_fallback_for_absent_batch_result(tmp_path: 
         def close(self) -> None:
             pass
 
-    monkeypatch.setattr("auditforge.native_ast_bridge._bridge_command", lambda _language: (["java"], None))
+    monkeypatch.setattr("auditforge.frontends.native_ast_bridge._bridge_command", lambda _language: (["java"], None))
     monkeypatch.setattr(native_ast_bridge, "_JavaBridgeSession", PartialSession)
     monkeypatch.setattr(
-        "auditforge.native_ast_bridge._run_java_batch",
+        "auditforge.frontends.native_ast_bridge._run_java_batch",
         lambda _command, sources, _cwd: ({sources[0].file.path: structural_payload("java")}, "partial batch response"),
     )
-    monkeypatch.setattr("auditforge.native_ast_bridge.analyze_native_with_ast", fake_single)
+    monkeypatch.setattr("auditforge.frontends.native_ast_bridge.analyze_native_with_ast", fake_single)
 
     results = analyze_java_batch_with_ast([first, second])
 
@@ -236,7 +236,7 @@ def test_java_batch_reuses_one_persistent_session_for_multiple_batches(tmp_path:
         def close(self) -> None:
             self.closed = True
 
-    monkeypatch.setattr("auditforge.native_ast_bridge._bridge_command", lambda _language: (["java"], None))
+    monkeypatch.setattr("auditforge.frontends.native_ast_bridge._bridge_command", lambda _language: (["java"], None))
     monkeypatch.setattr(native_ast_bridge, "_JavaBridgeSession", FakeSession)
     monkeypatch.setattr(native_ast_bridge, "JAVA_BATCH_MAX_FILES", 1)
 
@@ -249,7 +249,7 @@ def test_java_batch_reuses_one_persistent_session_for_multiple_batches(tmp_path:
 
 
 def test_native_bridge_falls_back_explicitly_when_go_is_unavailable(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("auditforge.native_ast_bridge.shutil.which", lambda _name: None)
+    monkeypatch.setattr("auditforge.frontends.native_ast_bridge.shutil.which", lambda _name: None)
     monkeypatch.delenv("GOROOT", raising=False)
 
     result, diagnostic = analyze_native_with_ast(source_file(tmp_path, "go"))

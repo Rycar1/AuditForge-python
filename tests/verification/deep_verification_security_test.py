@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
-import auditforge.deep_verification as deep_verification
-from auditforge.deep_verification import (
+import auditforge.verification.deep_verification as deep_verification
+from auditforge.analysis.llm_candidates import LLMConfig
+from auditforge.core.models import CodeAnchor, CodeFacts, RouteFact, TraceCandidate
+from auditforge.verification.deep_verification import (
     ContainerRuntimeError,
     container_sandbox_image,
     decide_declarative_status,
@@ -18,10 +20,8 @@ from auditforge.deep_verification import (
     run_deep_verification,
     validate_deep_response_schema,
 )
-from auditforge.llm_candidates import LLMConfig
-from auditforge.models import CodeAnchor, CodeFacts, RouteFact, TraceCandidate
-from auditforge.validation_dsl import EvidenceRecord, ValidationEvidenceResult, normalize_validation_plan
-from auditforge.validation_runner import ValidationRunnerConfig
+from auditforge.verification.validation_dsl import EvidenceRecord, ValidationEvidenceResult, normalize_validation_plan
+from auditforge.verification.validation_runner import ValidationRunnerConfig
 
 
 def test_constant_assertion_cannot_promote_deep_result() -> None:

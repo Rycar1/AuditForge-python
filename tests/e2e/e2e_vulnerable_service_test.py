@@ -6,7 +6,7 @@ from auditforge.engine import run_scan
 
 
 def test_deliberately_vulnerable_service_is_detected_end_to_end(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "e2e_vulnerable_service"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "e2e_vulnerable_service"
 
     result = run_scan(repo, tmp_path, None, "none")
 

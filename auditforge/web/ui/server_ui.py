@@ -16,9 +16,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import ui_pages, ui_run_pages, ui_settings, ui_shell, ui_theme
-from .project_inventory import inventory_summary
-from .report import (
+from ...analysis.project_inventory import inventory_summary
+from ...core.settings import DEFAULT_LANGUAGE, default_settings, load_workspace_settings, public_settings
+from ...core.snippets import candidate_flow_nodes, code_window, format_anchor
+from ...reporting.report import (
     confidence_label,
     metric_label,
     origin_label,
@@ -27,11 +28,10 @@ from .report import (
     status_label,
     vuln_label,
 )
-from .result_sections import has_runtime_negative_evidence
-from .settings import DEFAULT_LANGUAGE, default_settings, load_workspace_settings, public_settings
-from .snippets import candidate_flow_nodes, code_window, format_anchor
-from .store import read_dashboard_detail
-from .web_security import configured_repo_roots
+from ...reporting.result_sections import has_runtime_negative_evidence
+from ...reporting.store import read_dashboard_detail
+from ..web_security import configured_repo_roots
+from . import ui_pages, ui_run_pages, ui_settings, ui_shell, ui_theme
 
 
 @dataclass(frozen=True)

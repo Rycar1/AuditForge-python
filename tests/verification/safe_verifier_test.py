@@ -7,9 +7,9 @@ from pathlib import Path
 from threading import Thread
 from urllib.parse import parse_qs, urlparse
 
+from auditforge.core.models import CodeAnchor, CodeFacts, FunctionFact, RouteFact, TraceCandidate
 from auditforge.engine import run_scan
-from auditforge.models import CodeAnchor, CodeFacts, FunctionFact, RouteFact, TraceCandidate
-from auditforge.verification import run_safe_verification
+from auditforge.verification.verification import run_safe_verification
 
 
 class ReflectionFixture(BaseHTTPRequestHandler):
@@ -163,7 +163,7 @@ def test_safe_verifier_uses_real_source_parameters(tmp_path: Path) -> None:
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+        repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
         result = run_scan(repo, tmp_path, f"http://127.0.0.1:{server.server_port}", "safe")
         candidates = {item.id: item for item in result.candidates}
         confirmed = {

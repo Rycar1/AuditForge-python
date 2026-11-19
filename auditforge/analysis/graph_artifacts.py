@@ -18,8 +18,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .models import CodeFacts, CodeGraph
-from .utils import atomic_write_text, sha256_text
+from ..core.models import CodeFacts, CodeGraph
+from ..core.utils import atomic_write_text, sha256_text
 
 GRAPH_INDEX_FILE = "code_graph.json"
 GRAPH_DIRECTORY = "code_graph"

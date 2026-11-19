@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import auditforge.analysis_cache as analysis_cache
-import auditforge.python_analysis as python_analysis
-import auditforge.scanner as scanner
-from auditforge.language_frontend import LanguageAnalysisResult
+import auditforge.analysis.analysis_cache as analysis_cache
+import auditforge.analysis.scanner as scanner
+import auditforge.frontends.python_analysis as python_analysis
+from auditforge.frontends.language_frontend import LanguageAnalysisResult
 
 
 def _cache_root(tmp_path: Path) -> Path:
@@ -84,7 +84,7 @@ def test_java_batch_provider_keeps_only_current_batch_results(tmp_path: Path, mo
             for source in sources
         }
 
-    monkeypatch.setattr("auditforge.native_ast_bridge.analyze_java_batch_with_ast", fake_batch)
+    monkeypatch.setattr("auditforge.frontends.native_ast_bridge.analyze_java_batch_with_ast", fake_batch)
     descriptors = scanner.index_source_files(tmp_path, load_content=False, max_files=None)
     provider = scanner._JavaBatchProvider(  # noqa: SLF001 - validates bounded provider semantics
         descriptors,
@@ -124,7 +124,7 @@ def test_streaming_scan_consumes_java_batches_in_source_order(tmp_path: Path, mo
             for source in sources
         }
 
-    monkeypatch.setattr("auditforge.native_ast_bridge.analyze_java_batch_with_ast", fake_batch)
+    monkeypatch.setattr("auditforge.frontends.native_ast_bridge.analyze_java_batch_with_ast", fake_batch)
     facts = scanner.scan_repo(tmp_path)
 
     assert calls == [["A.java", "B.java"], ["C.java"]]
@@ -142,7 +142,7 @@ def test_java_batch_fallback_keeps_existing_heuristic_path_without_single_retry(
     (tmp_path / "Controller.java").write_text("class Controller {}\n", encoding="utf-8")
     monkeypatch.setenv("AUDITFORGE_ANALYSIS_CACHE_DIR", str(_cache_root(tmp_path)))
     monkeypatch.setattr(
-        "auditforge.native_ast_bridge.analyze_java_batch_with_ast",
+        "auditforge.frontends.native_ast_bridge.analyze_java_batch_with_ast",
         lambda sources: {
             source.file.path: (
                 None,
@@ -158,7 +158,7 @@ def test_java_batch_fallback_keeps_existing_heuristic_path_without_single_retry(
         return None, {"status": "unexpected", "reason": "fixture", "used": False, "fallback": True}
 
     monkeypatch.setattr(
-        "auditforge.native_ast_bridge.analyze_native_with_ast",
+        "auditforge.frontends.native_ast_bridge.analyze_native_with_ast",
         unexpected_single,
     )
 
@@ -212,7 +212,7 @@ def test_transient_typescript_frontend_fallback_is_not_reused_from_cache(tmp_pat
     monkeypatch.setenv("AUDITFORGE_ANALYSIS_CACHE_DIR", str(_cache_root(tmp_path)))
 
     monkeypatch.setattr(
-        "auditforge.typescript_compiler_bridge.analyze_typescript_with_compiler",
+        "auditforge.frontends.typescript_compiler_bridge.analyze_typescript_with_compiler",
         lambda _source: (
             None,
             {"status": "typescript_not_found", "reason": "fixture", "used": False, "fallback": True},
@@ -228,7 +228,7 @@ def test_transient_typescript_frontend_fallback_is_not_reused_from_cache(tmp_pat
         compiler_calls.append(source.file.path)
         return LanguageAnalysisResult(), {"status": "ok", "reason": "fixture", "used": True, "fallback": False}
 
-    monkeypatch.setattr("auditforge.typescript_compiler_bridge.analyze_typescript_with_compiler", compiler_now_available)
+    monkeypatch.setattr("auditforge.frontends.typescript_compiler_bridge.analyze_typescript_with_compiler", compiler_now_available)
     upgraded = scanner.scan_repo(tmp_path)
 
     assert compiler_calls == ["app.ts"]

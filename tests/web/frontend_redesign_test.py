@@ -14,8 +14,9 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from auditforge import server, server_ui
-from auditforge.store import SCHEMA
+from auditforge.reporting.store import SCHEMA
+from auditforge.web import server
+from auditforge.web.ui import server_ui
 
 CORE_PAGES = ("overview", "scan", "history", "logs", "settings", "run_status", "run_detail")
 SHELL_CLASSES = {"app-shell", "command-bar", "side-rail", "workspace-main"}

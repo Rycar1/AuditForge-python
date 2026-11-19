@@ -4,7 +4,7 @@ import html
 import json
 from collections.abc import Mapping
 
-from .llm_candidates import DEFAULT_BASE_URL, DEFAULT_MODEL
+from ...analysis.llm_candidates import DEFAULT_BASE_URL, DEFAULT_MODEL
 
 __all__ = [
     "render_cli_settings",

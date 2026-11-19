@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from .models import ScanResult
+from ..core.models import ScanResult
 from .result_sections import build_result_sections
 
 SCHEMA = """

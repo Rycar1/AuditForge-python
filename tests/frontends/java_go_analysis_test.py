@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.java_go_analysis import analyze_go, analyze_java, analyze_java_go
-from auditforge.models import IndexedFile
-from auditforge.scanner import scan_repo
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import scan_repo
+from auditforge.core.models import IndexedFile
+from auditforge.frontends.java_go_analysis import analyze_go, analyze_java, analyze_java_go
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def source_file(path: str, language: str, source: str):

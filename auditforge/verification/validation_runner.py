@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .utils import read_json, write_json
+from ..core.utils import read_json, write_json
 from .validation_dsl import (
     DeclarativeValidationPlan,
     EvidenceRecord,

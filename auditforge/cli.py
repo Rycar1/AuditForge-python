@@ -7,14 +7,14 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 
+from .analysis.llm_candidates import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMConfig
+from .core.logging_config import configure_logging, contextual_logger
+from .core.settings import llm_config_from_settings, load_workspace_settings, sandbox_concurrency_from_settings
+from .core.user_errors import classify_error, format_cli_error, new_reference
 from .engine import run_scan
-from .llm_candidates import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMConfig
-from .logging_config import configure_logging, contextual_logger
-from .server import serve_workspace
-from .settings import llm_config_from_settings, load_workspace_settings, sandbox_concurrency_from_settings
-from .user_errors import classify_error, format_cli_error, new_reference
-from .validation_runner import run_validation_worker
-from .web_security import WebSecurityConfig, is_unc_or_device_path
+from .verification.validation_runner import run_validation_worker
+from .web.server import serve_workspace
+from .web.web_security import WebSecurityConfig, is_unc_or_device_path
 
 
 def main(argv: list[str] | None = None) -> int:

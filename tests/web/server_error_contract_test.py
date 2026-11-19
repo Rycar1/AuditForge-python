@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from auditforge import server as server_module
-from auditforge.logging_config import configure_logging, get_logger, get_recent_logs, shutdown_logging
-from auditforge.server import create_workspace_server, normalize_run_failure, public_log_entry
-from auditforge.user_errors import classify_error, error_payload
-from auditforge.web_security import WebSecurityConfig
+from auditforge.core.logging_config import configure_logging, get_logger, get_recent_logs, shutdown_logging
+from auditforge.core.user_errors import classify_error, error_payload
+from auditforge.web import server as server_module
+from auditforge.web.server import create_workspace_server, normalize_run_failure, public_log_entry
+from auditforge.web.web_security import WebSecurityConfig
 
 
 def request(server, method: str, path: str, *, headers: dict[str, str] | None = None, body: bytes | None = None):

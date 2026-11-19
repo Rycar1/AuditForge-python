@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .fingerprints import serialized_finding_fingerprint
-from .utils import normalize_path
+from ..core.fingerprints import serialized_finding_fingerprint
+from ..core.utils import normalize_path
 
 TruthExpectation = Literal["vulnerable", "safe"]
 

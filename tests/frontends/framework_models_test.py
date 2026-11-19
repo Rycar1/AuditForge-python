@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.scanner import scan_repo
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import scan_repo
 
 
 def test_django_drf_request_and_raw_sql_models_create_a_trace_candidate(tmp_path: Path) -> None:

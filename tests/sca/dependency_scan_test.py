@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import auditforge.dependency_scan as dependency_scan
-from auditforge.dependency_scan import (
+import auditforge.sca.dependency_scan as dependency_scan
+from auditforge.analysis.llm_candidates import LLMConfig
+from auditforge.core.models import DependencyManifest, DependencyPackage
+from auditforge.engine import run_scan
+from auditforge.reporting.store import read_dashboard_data
+from auditforge.sca.dependency_scan import (
     analyze_dependencies_with_osv,
     build_dependency_prompt,
     normalize_dependency_findings,
@@ -12,14 +16,10 @@ from auditforge.dependency_scan import (
     scan_dependency_manifests,
     split_dependency_manifests,
 )
-from auditforge.engine import run_scan
-from auditforge.llm_candidates import LLMConfig
-from auditforge.models import DependencyManifest, DependencyPackage
-from auditforge.store import read_dashboard_data
 
 
 def test_dependency_manifest_parser_extracts_requirements_and_pom() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "dependency_scan_project"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "dependency_scan_project"
 
     manifests = scan_dependency_manifests(repo)
     packages = {
@@ -77,7 +77,7 @@ def test_maven_parent_properties_and_dependency_management_resolve_versions(tmp_
 
 
 def test_dependency_prompt_accepts_custom_task_instructions() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "dependency_scan_project"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "dependency_scan_project"
     manifests = scan_dependency_manifests(repo)
 
     prompt = build_dependency_prompt(repo, manifests, 24000, "只关注高危及以上依赖组件风险。")
@@ -87,7 +87,7 @@ def test_dependency_prompt_accepts_custom_task_instructions() -> None:
 
 
 def test_dependency_prompt_contains_sca_review_rubrics() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "dependency_scan_project"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "dependency_scan_project"
     manifests = scan_dependency_manifests(repo)
 
     payload = json.loads(build_dependency_prompt(repo, manifests, 24000))
@@ -109,7 +109,7 @@ def test_dependency_prompt_contains_sca_review_rubrics() -> None:
 
 
 def test_dependency_scan_splits_dependencies_into_parallel_chunks() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "dependency_scan_project"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "dependency_scan_project"
     manifests = scan_dependency_manifests(repo)
 
     chunks = split_dependency_manifests(manifests, chunk_size=2)
@@ -119,8 +119,8 @@ def test_dependency_scan_splits_dependencies_into_parallel_chunks() -> None:
 
 
 def test_dependency_llm_scan_writes_findings_report_and_store(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "dependency_scan_project"
-    response_file = Path(__file__).resolve().parents[1] / "fixtures" / "dependency_scan_response.json"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "dependency_scan_project"
+    response_file = Path(__file__).resolve().parents[2] / "fixtures" / "dependency_scan_response.json"
 
     result = run_scan(
         repo,
@@ -152,7 +152,7 @@ def test_dependency_llm_scan_writes_findings_report_and_store(tmp_path: Path) ->
 
 
 def test_dependency_llm_malformed_schema_is_rejected(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "dependency_scan_project"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "dependency_scan_project"
     response_file = tmp_path / "bad-dependency-response.json"
     response_file.write_text('{"items":[]}', encoding="utf-8")
 

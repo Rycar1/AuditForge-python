@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from auditforge.models import IndexedFile
-from auditforge.scanner import SourceFile, scan_repo
-from auditforge.typescript_compiler_bridge import (
+from auditforge.analysis.scanner import SourceFile, scan_repo
+from auditforge.core.models import IndexedFile
+from auditforge.frontends.typescript_compiler_bridge import (
     analyze_typescript_with_compiler,
     compiler_payload_to_result,
 )
@@ -196,7 +196,7 @@ def test_scanner_uses_compiler_result_and_marks_file_ast(tmp_path: Path, monkeyp
             "version": "5.test",
         }
 
-    monkeypatch.setattr("auditforge.typescript_compiler_bridge.analyze_typescript_with_compiler", fake_compiler)
+    monkeypatch.setattr("auditforge.frontends.typescript_compiler_bridge.analyze_typescript_with_compiler", fake_compiler)
     facts = scan_repo(tmp_path)
 
     assert facts.files[0].parsed_by == "ast"
@@ -211,7 +211,7 @@ def test_scanner_explicitly_falls_back_when_typescript_is_unavailable(tmp_path: 
     path.write_text(SOURCE, encoding="utf-8")
 
     monkeypatch.setattr(
-        "auditforge.typescript_compiler_bridge.analyze_typescript_with_compiler",
+        "auditforge.frontends.typescript_compiler_bridge.analyze_typescript_with_compiler",
         lambda _source: (
             None,
             {
@@ -237,7 +237,7 @@ def test_scanner_explicitly_falls_back_when_typescript_is_unavailable(tmp_path: 
 
 
 def test_bridge_returns_node_not_found_diagnostic_without_running_target(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("auditforge.typescript_compiler_bridge.shutil.which", lambda _name: None)
+    monkeypatch.setattr("auditforge.frontends.typescript_compiler_bridge.shutil.which", lambda _name: None)
 
     result, diagnostic = analyze_typescript_with_compiler(source_file(tmp_path))
 

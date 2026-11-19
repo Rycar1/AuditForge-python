@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from auditforge.ui_shell import render_navigation, render_page_header, render_shell_document
+from auditforge.web.ui.ui_shell import render_navigation, render_page_header, render_shell_document
 
 
 def test_navigation_keeps_primary_information_architecture_and_active_page() -> None:

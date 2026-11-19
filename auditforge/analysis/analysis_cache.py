@@ -15,7 +15,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from .models import (
+from ..core.models import (
     CallSiteFact,
     ClassFact,
     CodeAnchor,
@@ -29,7 +29,7 @@ from .models import (
     SinkFact,
     SourceFact,
 )
-from .utils import atomic_write_text, sha256_text
+from ..core.utils import atomic_write_text, sha256_text
 
 CACHE_SCHEMA_VERSION = 1
 # Bump this when scanner extraction semantics change without a facts-model

@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from auditforge.deep_verification import (
+from auditforge.analysis.llm_candidates import LLMConfig, build_llm_prompt
+from auditforge.analysis.llm_candidates import test_llm_connection as run_llm_connection_test
+from auditforge.analysis.scanner import scan_repo
+from auditforge.core.models import CodeAnchor, TraceCandidate
+from auditforge.engine import run_scan
+from auditforge.verification.deep_verification import (
     build_deep_verification_prompt,
     check_container_runtime,
     find_container_runtime_path,
@@ -11,11 +16,6 @@ from auditforge.deep_verification import (
     select_deep_verification_candidates,
     validate_sandbox_script,
 )
-from auditforge.engine import run_scan
-from auditforge.llm_candidates import LLMConfig, build_llm_prompt
-from auditforge.llm_candidates import test_llm_connection as run_llm_connection_test
-from auditforge.models import CodeAnchor, TraceCandidate
-from auditforge.scanner import scan_repo
 
 
 def _candidate(
@@ -46,7 +46,7 @@ def _candidate(
 
 
 def test_llm_candidate_prompt_contains_rich_review_guidance() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     facts = scan_repo(repo)
 
     payload = json.loads(build_llm_prompt(repo, facts, [], 28000))
@@ -70,7 +70,7 @@ def test_llm_candidate_prompt_contains_rich_review_guidance() -> None:
 
 
 def test_deep_verification_prompt_contains_declarative_runner_rubrics() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     candidate = _candidate("llm-injection", origin="llm", confidence="high", source_line=9)
 
     payload = json.loads(build_deep_verification_prompt(repo, candidate))
@@ -128,7 +128,7 @@ def test_llm_candidate_fixture_provider_adds_non_duplicate_candidate(tmp_path: P
         ),
         encoding="utf-8",
     )
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     result = run_scan(
         repo,
         tmp_path / "workspace",
@@ -158,7 +158,7 @@ def test_deep_verification_balances_deterministic_and_llm_candidates() -> None:
 def test_llm_candidate_malformed_schema_is_rejected(tmp_path: Path) -> None:
     response_file = tmp_path / "bad-llm-response.json"
     response_file.write_text(json.dumps({"items": [{"vulnClass": "xss"}]}, ensure_ascii=False), encoding="utf-8")
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
 
     result = run_scan(
         repo,
@@ -221,7 +221,7 @@ def test_deep_verification_fixture_reads_but_blocks_legacy_sandbox(tmp_path: Pat
         ),
         encoding="utf-8",
     )
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
 
     result = run_scan(
         repo,
@@ -244,7 +244,7 @@ def test_deep_verification_fixture_reads_but_blocks_legacy_sandbox(tmp_path: Pat
 def test_deep_verification_malformed_json_contract_blocks_confirmation(tmp_path: Path) -> None:
     response_file = tmp_path / "bad-deep-response.json"
     response_file.write_text(json.dumps({"verdict": "confirmed"}, ensure_ascii=False), encoding="utf-8")
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
 
     result = run_scan(
         repo,

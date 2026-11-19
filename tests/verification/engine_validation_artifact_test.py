@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from auditforge.core.models import VerificationResult
 from auditforge.engine import extract_validation_runner_plans
-from auditforge.models import VerificationResult
 
 
 def test_extract_validation_runner_plans_keeps_only_normalized_plan_records() -> None:

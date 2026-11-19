@@ -12,11 +12,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TypeVar
 
+from ..core.models import CodeAnchor, CodeFacts, Confidence, TraceCandidate, TraceStep
+from ..core.snippets import code_window
+from ..core.utils import normalize_path, sha256_text
+from ..frontends.language_frontend import SINK_TAXONOMY
 from .call_resolution import CallResolver, resolution_models_from_diagnostics
-from .language_frontend import SINK_TAXONOMY
-from .models import CodeAnchor, CodeFacts, Confidence, TraceCandidate, TraceStep
-from .snippets import code_window
-from .utils import normalize_path, sha256_text
 
 ALLOWED_VULN_CLASSES: set[str] = {"injection", "xss", "ssrf", "auth", "authz"}
 ALLOWED_CONFIDENCE: set[str] = {"low", "medium", "high"}

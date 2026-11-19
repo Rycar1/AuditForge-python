@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from re import Pattern
 
-from .models import Confidence, VulnClass
+from ..core.models import Confidence, VulnClass
 
 
 @dataclass(frozen=True)

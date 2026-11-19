@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .models import CodeAnchor, CodeFacts, TraceCandidate, TraceStep, VulnClass
-from .utils import sha256_text
+from ..core.models import CodeAnchor, CodeFacts, TraceCandidate, TraceStep, VulnClass
+from ..core.utils import sha256_text
 
 
 def generate_direct_candidates(

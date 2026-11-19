@@ -22,10 +22,10 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..core.utils import sha256_text
 from .java_ast_semantics import analyze_java_ast_semantics
 from .java_go_analysis import analyze_go, analyze_java
 from .language_frontend import LanguageAnalysisResult, LanguageFactBuilder, dedupe_strings
-from .utils import sha256_text
 
 BRIDGE_TIMEOUT_SECONDS = 20
 MAX_BRIDGE_OUTPUT_BYTES = 12 * 1024 * 1024

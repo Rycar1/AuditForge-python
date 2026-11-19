@@ -4,9 +4,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+from auditforge.analysis.graph_artifacts import graph_summary, read_graph_facts, read_graph_page, write_graph_artifacts
+from auditforge.core.models import CodeAnchor, CodeEdge, CodeFacts, CodeGraph, CodeNode
 from auditforge.engine import run_scan
-from auditforge.graph_artifacts import graph_summary, read_graph_facts, read_graph_page, write_graph_artifacts
-from auditforge.models import CodeAnchor, CodeEdge, CodeFacts, CodeGraph, CodeNode
 
 
 def test_graph_artifacts_are_compressed_and_pageable_by_file(tmp_path: Path) -> None:
@@ -43,7 +43,7 @@ def test_graph_artifacts_are_compressed_and_pageable_by_file(tmp_path: Path) -> 
 
 
 def test_new_scans_keep_large_facts_and_graph_out_of_sqlite(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
 
     run_scan(repo, tmp_path)
 

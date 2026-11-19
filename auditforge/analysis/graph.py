@@ -4,9 +4,9 @@ from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
+from ..core.models import CodeAnchor, CodeEdge, CodeFacts, CodeGraph, CodeNode, FunctionFact, SinkFact
+from ..core.utils import stable_id
 from .call_resolution import CallResolver, resolution_models_from_diagnostics
-from .models import CodeAnchor, CodeEdge, CodeFacts, CodeGraph, CodeNode, FunctionFact, SinkFact
-from .utils import stable_id
 
 
 def build_graph(

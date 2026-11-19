@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 
-from auditforge.call_resolution import CallResolver, resolution_models_from_diagnostics
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.scanner import extract_imports, index_source_files, scan_repo
+from auditforge.analysis.call_resolution import CallResolver, resolution_models_from_diagnostics
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import extract_imports, index_source_files, scan_repo
 
 
 def test_composer_promoted_properties_resolve_controller_service_repository_chain(tmp_path) -> None:

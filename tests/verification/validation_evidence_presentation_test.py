@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import json
 
-from auditforge.models import VerificationResult
-from auditforge.report import (
+from auditforge.core.models import VerificationResult
+from auditforge.reporting.report import (
     render_declarative_validation_markdown,
     render_verification_result_html,
 )
-from auditforge.result_sections import (
+from auditforge.reporting.result_sections import (
     collect_declarative_validation_runs,
     has_runtime_negative_evidence,
     section_id_for_verification,
 )
-from auditforge.server_ui import partition_candidate_rows, render_verification_block
+from auditforge.web.ui.server_ui import partition_candidate_rows, render_verification_block
 
 
 def declarative_logs(*, runner_configured: bool = True, candidate_id: str = "candidate-1") -> list[dict]:

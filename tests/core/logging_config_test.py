@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from auditforge.logging_config import (
+from auditforge.core.logging_config import (
     MAX_LOG_QUERY_LIMIT,
     RingBufferHandler,
     configure_logging,

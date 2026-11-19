@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html.parser import HTMLParser
 
-from auditforge.ui_run_pages import render_run_detail_body, render_run_status_body
+from auditforge.web.ui.ui_run_pages import render_run_detail_body, render_run_status_body
 
 
 class StructureParser(HTMLParser):

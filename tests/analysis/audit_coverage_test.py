@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from auditforge.audit_coverage import build_audit_coverage
-from auditforge.engine import run_scan
-from auditforge.llm_candidates import (
+from auditforge.analysis.audit_coverage import build_audit_coverage
+from auditforge.analysis.llm_candidates import (
     LLM_AUDIT_AGENTS,
     LLMAuditTask,
     LLMConfig,
     build_llm_prompt,
     generate_llm_candidates,
 )
-from auditforge.models import (
+from auditforge.analysis.scanner import scan_repo
+from auditforge.core.models import (
     CallSiteFact,
     CodeAnchor,
     CodeEdge,
@@ -24,8 +24,8 @@ from auditforge.models import (
     SinkFact,
     SourceFact,
 )
-from auditforge.scanner import scan_repo
-from auditforge.store import read_dashboard_detail
+from auditforge.engine import run_scan
+from auditforge.reporting.store import read_dashboard_detail
 
 
 def anchor(file: str, line: int, *, end_line: int | None = None, symbol: str | None = None) -> CodeAnchor:
@@ -121,7 +121,7 @@ def test_coverage_map_classifies_observable_gaps_and_rescan_state() -> None:
 
 
 def test_scan_persists_coverage_artifact_and_dashboard_summary(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     result = run_scan(repo, tmp_path)
 
     artifact = json.loads((tmp_path / "analysis_coverage.json").read_text(encoding="utf-8"))
@@ -190,7 +190,7 @@ def test_transient_agent_failures_are_retried_once(tmp_path: Path, monkeypatch) 
             raise TimeoutError("transient fixture timeout")
         return json.dumps({"candidates": []})
 
-    monkeypatch.setattr("auditforge.llm_candidates.load_llm_response", flaky_response)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.load_llm_response", flaky_response)
     candidates, diagnostics = generate_llm_candidates(tmp_path, facts, [], LLMConfig(enabled=True, concurrency=3))
 
     assert candidates == []

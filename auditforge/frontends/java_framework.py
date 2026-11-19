@@ -16,9 +16,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from ..core.models import CodeAnchor, CodeFacts, FunctionFact, IndexedFile, SinkFact
+from ..core.utils import normalize_path, sha256_text, stable_id
 from .java_ast_semantics import _WEAK_HASH_ALGOS, _is_weak_cipher_transform, _normalize_algo
-from .models import CodeAnchor, CodeFacts, FunctionFact, IndexedFile, SinkFact
-from .utils import normalize_path, sha256_text, stable_id
 
 MAX_MAPPER_XML_FILES = 2_000
 MAX_MAPPER_XML_BYTES = 4 * 1024 * 1024

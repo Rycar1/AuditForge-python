@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from .llm_candidates import LLMConfig, load_llm_json_response, parse_json_object, with_output_contract
-from .models import CodeFacts, RouteFact, TraceCandidate, VerificationResult, VerificationStatus
-from .snippets import candidate_flow_nodes, code_window, format_anchor
+from ..analysis.llm_candidates import LLMConfig, load_llm_json_response, parse_json_object, with_output_contract
+from ..core.models import CodeFacts, RouteFact, TraceCandidate, VerificationResult, VerificationStatus
+from ..core.snippets import candidate_flow_nodes, code_window, format_anchor
 from .validation_dsl import (
     DeclarativeValidationPlan,
     EvidenceRecord,

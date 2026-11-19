@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import CodeAnchor, CodeFacts, FunctionFact, SanitizerFact, SinkFact, SourceFact
-from .utils import normalize_path, sha256_text, stable_id
+from ..core.models import CodeAnchor, CodeFacts, FunctionFact, SanitizerFact, SinkFact, SourceFact
+from ..core.utils import normalize_path, sha256_text, stable_id
 
 
 @dataclass(frozen=True)

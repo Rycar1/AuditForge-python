@@ -4,8 +4,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from .call_resolution import CallResolver, resolution_models_from_diagnostics
-from .models import (
+from ..core.models import (
     CallSiteFact,
     CodeAnchor,
     CodeEdge,
@@ -22,6 +21,7 @@ from .models import (
     TraceStep,
     VulnClass,
 )
+from .call_resolution import CallResolver, resolution_models_from_diagnostics
 
 
 @dataclass

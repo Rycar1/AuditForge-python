@@ -5,7 +5,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from auditforge import server, server_ui
+from auditforge.web import server
+from auditforge.web.ui import server_ui
 
 
 def test_server_reexports_presentation_api_without_duplicate_implementations() -> None:
@@ -15,9 +16,9 @@ def test_server_reexports_presentation_api_without_duplicate_implementations() -
 
 
 def test_page_renderers_live_in_presentation_module() -> None:
-    assert server.render_overview_page.__module__ == "auditforge.server_ui"
-    assert server.render_settings_page.__module__ == "auditforge.server_ui"
-    assert server.render_card.__module__ == "auditforge.server_ui"
+    assert server.render_overview_page.__module__ == "auditforge.web.ui.server_ui"
+    assert server.render_settings_page.__module__ == "auditforge.web.ui.server_ui"
+    assert server.render_card.__module__ == "auditforge.web.ui.server_ui"
 
 
 def test_logs_page_exposes_filters_controls_and_active_navigation(tmp_path: Path) -> None:

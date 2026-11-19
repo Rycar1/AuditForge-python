@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
-from auditforge.benchmark import load_ground_truth
+from auditforge.reporting.benchmark import load_ground_truth
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 REVISION = "d45ba3c4e7efa7f023f25f58ab4af9912c887057"
 TAXONOMIES = {
     "command_injection",

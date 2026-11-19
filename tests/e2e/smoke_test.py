@@ -5,14 +5,15 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.direct_findings import generate_direct_candidates
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.direct_findings import generate_direct_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.llm_candidates import LLMConfig
+from auditforge.analysis.scanner import extract_functions, extract_sinks, extract_sources, index_source_files, scan_repo
 from auditforge.engine import run_scan
-from auditforge.graph import build_graph
-from auditforge.llm_candidates import LLMConfig
-from auditforge.report import metric_label, render_analysis_completeness_markdown
-from auditforge.scanner import extract_functions, extract_sinks, extract_sources, index_source_files, scan_repo
-from auditforge.server import (
+from auditforge.reporting.report import metric_label, render_analysis_completeness_markdown
+from auditforge.reporting.store import SCHEMA
+from auditforge.web.server import (
     build_home_overview,
     build_run_export_zip,
     build_scan_config_snapshot,
@@ -31,11 +32,10 @@ from auditforge.server import (
     save_candidate_triage,
     save_runs,
 )
-from auditforge.store import SCHEMA
 
 
 def test_polyglot_fixture_scan(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     result = run_scan(repo, tmp_path)
     assert result.stats()["files"] == 3
     assert result.stats()["routes"] == 7
@@ -359,7 +359,7 @@ def test_candidate_triage_notes_round_trip_and_validate_status(tmp_path: Path) -
 
 
 def test_render_candidate_card_includes_triage_controls(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     result = run_scan(repo, tmp_path)
     candidate = result.candidates[0]
     row = {
@@ -383,7 +383,7 @@ def test_render_candidate_card_includes_triage_controls(tmp_path: Path) -> None:
 
 
 def test_run_export_zip_contains_reports_and_audit_artifacts(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     result = run_scan(repo, tmp_path)
     save_candidate_triage(tmp_path, {"candidate_id": result.candidates[0].id, "status": "accepted", "note": "人工确认"})
     run = {
@@ -437,7 +437,7 @@ def test_exportable_run_files_ignores_symlink_and_non_whitelisted_files(tmp_path
 
 
 def test_upload_deep_fixture_has_precise_body_and_authz_flows(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "upload_deep_vuln_service"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "upload_deep_vuln_service"
     result = run_scan(repo, tmp_path)
     candidates = {(item.vuln_class, item.source.start_line, item.sink.start_line) for item in result.candidates}
 
@@ -673,7 +673,7 @@ def test_count_confirmed_results_reads_database_when_json_missing(tmp_path: Path
 
 def test_load_runs_recovers_run_directory_when_index_missing(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     run_dir = workspace / "runs" / "run-recovered"
     run_scan(repo, run_dir)
 
@@ -688,7 +688,7 @@ def test_load_runs_recovers_run_directory_when_index_missing(tmp_path: Path) -> 
 
 def test_load_runs_merges_index_with_discovered_run_directories(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     indexed_dir = workspace / "runs" / "run-indexed"
     discovered_dir = workspace / "runs" / "run-discovered"
     run_scan(repo, indexed_dir)
@@ -723,7 +723,7 @@ def test_load_runs_merges_index_with_discovered_run_directories(tmp_path: Path) 
 
 def test_save_runs_preserves_recovered_run_records(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     run_scan(repo, workspace / "runs" / "run-recovered")
 
     save_runs(workspace, load_runs(workspace))

@@ -9,8 +9,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from .analysis_cache import AnalysisCache, CachedFileAnalysis
-from .models import (
+from ..core.models import (
     CallSiteFact,
     ClassFact,
     CodeAnchor,
@@ -25,8 +24,9 @@ from .models import (
     SinkFact,
     SourceFact,
 )
+from ..core.utils import dedupe_by, line_count, normalize_path, sha256_text, stable_id
+from .analysis_cache import AnalysisCache, CachedFileAnalysis
 from .rules import SANITIZER_RULES, SINK_RULES, SOURCE_RULES
-from .utils import dedupe_by, line_count, normalize_path, sha256_text, stable_id
 
 DEFAULT_MAX_SOURCE_FILE_BYTES = 8 * 1024 * 1024
 # Kept as a public compatibility alias for callers that imported the old
@@ -249,7 +249,7 @@ def scan_repo(
         analysis_complete = False
         if current_file.language == "python":
             try:
-                from .python_analysis import analyze_python
+                from ..frontends.python_analysis import analyze_python
 
                 result = analyze_python(source_file)
                 ast_file = replace(current_file, parsed_by="ast")
@@ -270,7 +270,7 @@ def scan_repo(
                 diagnostics["fallback_files"] += 1
         if not analysis_complete and current_file.language == "typescript":
             try:
-                from .typescript_compiler_bridge import analyze_typescript_with_compiler
+                from ..frontends.typescript_compiler_bridge import analyze_typescript_with_compiler
 
                 compiler_result, compiler_diagnostic = analyze_typescript_with_compiler(source_file)
             except Exception as exc:  # noqa: BLE001 - the existing frontend is the safety fallback
@@ -314,7 +314,7 @@ def scan_repo(
                 analysis_complete = True
         if not analysis_complete and (current_file.language == "go" or (current_file.language == "java" and not java_batch_available)):
             try:
-                from .native_ast_bridge import analyze_native_with_ast
+                from ..frontends.native_ast_bridge import analyze_native_with_ast
 
                 native_result, native_diagnostic = analyze_native_with_ast(source_file)
             except Exception as exc:  # noqa: BLE001 - preserve the existing language frontend as a safe fallback
@@ -365,9 +365,9 @@ def scan_repo(
     # dependencies are not ordinary language constructs.  Add those facts before
     # the common de-duplication pass so CLI, benchmark and Dashboard scans all see
     # the same modelled evidence.
-    from .framework_models import augment_framework_facts
-    from .java_framework import augment_java_framework_facts
-    from .php_symbols import augment_php_symbol_facts
+    from ..frontends.framework_models import augment_framework_facts
+    from ..frontends.java_framework import augment_java_framework_facts
+    from ..frontends.php_symbols import augment_php_symbol_facts
 
     augment_framework_facts(repo_path, facts)
     augment_java_framework_facts(repo_path, facts)
@@ -461,7 +461,7 @@ def _record_cached_analysis(diagnostics: dict[str, Any], file: IndexedFile, prof
         _record_cached_frontend(diagnostics, profile)
     elif profile == "language-frontend":
         try:
-            from .language_registry import frontend_id
+            from ..frontends.language_registry import frontend_id
 
             frontend = frontend_id(file.language) or file.language
         except Exception:  # noqa: BLE001 - cached facts remain valid without presentation metadata
@@ -575,7 +575,7 @@ class _JavaBatchProvider:
 
     def _run_batch(self, batch: list[SourceFile]) -> None:
         try:
-            from .native_ast_bridge import analyze_java_batch_with_ast
+            from ..frontends.native_ast_bridge import analyze_java_batch_with_ast
 
             batch_results = analyze_java_batch_with_ast(batch)
         except Exception:  # noqa: BLE001 - preserve the one-file native fallback
@@ -800,7 +800,7 @@ def _extend_language_frontend_facts(facts: CodeFacts, source_file: SourceFile, d
     if source_file.file.language not in {"javascript", "typescript", "java", "go", "php"}:
         return False
     try:
-        from .language_registry import analyze_language_frontend, frontend_id
+        from ..frontends.language_registry import analyze_language_frontend, frontend_id
 
         result = analyze_language_frontend(source_file)
     except Exception as exc:  # noqa: BLE001 - legacy generic extraction remains available

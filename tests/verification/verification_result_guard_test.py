@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from auditforge.core.models import VerificationResult
 from auditforge.engine import parse_verification_modes, protect_unsubstantiated_negative
-from auditforge.models import VerificationResult
-from auditforge.result_sections import section_id_for_verification
+from auditforge.reporting.result_sections import section_id_for_verification
 
 
 def test_transport_failure_is_not_treated_as_not_reproduced() -> None:

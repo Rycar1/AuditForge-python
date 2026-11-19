@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from auditforge.benchmark import evaluate_candidates, load_ground_truth
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.scanner import scan_repo
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import scan_repo
+from auditforge.reporting.benchmark import evaluate_candidates, load_ground_truth
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_django_drf_framework_benchmark_has_full_recall() -> None:

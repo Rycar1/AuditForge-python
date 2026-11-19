@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-import auditforge.candidates as candidate_engine
-from auditforge.candidates import build_trace_candidates
-from auditforge.direct_findings import generate_direct_candidates
-from auditforge.graph import build_graph
-from auditforge.scanner import MAX_INDEXED_FILES, index_source_files, scan_repo
+import auditforge.analysis.candidates as candidate_engine
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.direct_findings import generate_direct_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import MAX_INDEXED_FILES, index_source_files, scan_repo
 
 
 def analyze(repo: Path):

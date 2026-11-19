@@ -7,11 +7,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .deep_verification import DEFAULT_DEEP_SYSTEM_PROMPT, DEFAULT_DEEP_USER_PROMPT
-from .dependency_scan import DEFAULT_DEPENDENCY_SYSTEM_PROMPT, DEFAULT_DEPENDENCY_USER_PROMPT
-from .llm_candidates import DEFAULT_BASE_URL, DEFAULT_CANDIDATE_SYSTEM_PROMPT, DEFAULT_CANDIDATE_USER_PROMPT, DEFAULT_MODEL, LLMConfig
+from ..analysis.llm_candidates import (
+    DEFAULT_BASE_URL,
+    DEFAULT_CANDIDATE_SYSTEM_PROMPT,
+    DEFAULT_CANDIDATE_USER_PROMPT,
+    DEFAULT_MODEL,
+    LLMConfig,
+)
+from ..sca.dependency_scan import DEFAULT_DEPENDENCY_SYSTEM_PROMPT, DEFAULT_DEPENDENCY_USER_PROMPT
+from ..verification.deep_verification import DEFAULT_DEEP_SYSTEM_PROMPT, DEFAULT_DEEP_USER_PROMPT
+from ..web.web_security import atomic_write_json, locked_path, redact_url
 from .secret_store import clear_llm_api_key, load_llm_api_key, save_llm_api_key
-from .web_security import atomic_write_json, locked_path, redact_url
 
 SETTINGS_FILE = "auditforge_settings.json"
 SETTINGS_LOCK = threading.RLock()

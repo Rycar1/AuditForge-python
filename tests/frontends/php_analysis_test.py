@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.models import CodeFacts, IndexedFile
-from auditforge.php_analysis import analyze_php
-from auditforge.scanner import SourceFile, language_for_path
-from auditforge.utils import line_count, stable_id
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import SourceFile, language_for_path
+from auditforge.core.models import CodeFacts, IndexedFile
+from auditforge.core.utils import line_count, stable_id
+from auditforge.frontends.php_analysis import analyze_php
 
 
 def analyze(tmp_path: Path, content: str, name: str = "app.php"):

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from auditforge import project_inventory
-from auditforge.project_inventory import build_project_inventory, inventory_summary
+from auditforge.analysis import project_inventory
+from auditforge.analysis.project_inventory import build_project_inventory, inventory_summary
 
 
 def test_project_inventory_counts_language_lines(tmp_path: Path) -> None:

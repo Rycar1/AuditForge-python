@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.javascript_analysis import analyze_javascript_typescript
-from auditforge.models import CodeFacts, IndexedFile
-from auditforge.scanner import SourceFile, scan_repo
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import SourceFile, scan_repo
+from auditforge.core.models import CodeFacts, IndexedFile
+from auditforge.frontends.javascript_analysis import analyze_javascript_typescript
 
 
 def source_file(tmp_path: Path, name: str, content: str) -> SourceFile:
@@ -186,7 +186,7 @@ def test_nodegoat_style_eval_of_request_body_is_code_injection(tmp_path: Path) -
 
 
 def test_scanner_preserves_cross_function_typescript_flow_in_language_lab() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_language_vuln_lab"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_language_vuln_lab"
     facts = scan_repo(repo)
     candidates = build_trace_candidates(facts, build_graph(facts))
 
@@ -202,7 +202,7 @@ def test_scanner_preserves_cross_function_typescript_flow_in_language_lab() -> N
 
 
 def test_parameterized_query_and_rows_response_do_not_create_safe_route_candidate() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     facts = scan_repo(repo)
     candidates = build_trace_candidates(facts, build_graph(facts))
     server_candidates = [candidate for candidate in candidates if candidate.source.file == "server.ts"]

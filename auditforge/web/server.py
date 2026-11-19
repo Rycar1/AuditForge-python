@@ -21,22 +21,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse, urlsplit
 
-from . import server_ui as _server_ui
-from .engine import run_scan
-from .graph_artifacts import GRAPH_DIRECTORY, graph_summary, read_graph_page
-from .llm_candidates import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMConfig, test_llm_connection
-from .logging_config import contextual_logger, get_logger, get_recent_logs
-from .project_inventory import inventory_summary
-from .scan_worker import (
-    WORKER_JOB_FILE,
-    WORKER_STATE_FILE,
-    cancel_request_path,
-    read_worker_state,
-    scan_job_payload,
-    write_worker_job,
-    write_worker_state,
-)
-from .settings import (
+from ..analysis.graph_artifacts import GRAPH_DIRECTORY, graph_summary, read_graph_page
+from ..analysis.llm_candidates import DEFAULT_BASE_URL, DEFAULT_MODEL, LLMConfig, test_llm_connection
+from ..analysis.project_inventory import inventory_summary
+from ..core.logging_config import contextual_logger, get_logger, get_recent_logs
+from ..core.settings import (
     llm_config_from_settings,
     load_workspace_settings,
     mask_secret,
@@ -44,8 +33,7 @@ from .settings import (
     sandbox_concurrency_from_settings,
     save_workspace_settings,
 )
-from .store import read_dashboard_detail, read_dashboard_summary
-from .user_errors import (
+from ..core.user_errors import (
     UserError,
     UserFacingError,
     classify_error,
@@ -55,8 +43,20 @@ from .user_errors import (
     user_error,
     with_status,
 )
-from .utils import sha256_text
-from .verification import validate_target_url
+from ..core.utils import sha256_text
+from ..engine import run_scan
+from ..reporting.store import read_dashboard_detail, read_dashboard_summary
+from ..verification.verification import validate_target_url
+from .scan_worker import (
+    WORKER_JOB_FILE,
+    WORKER_STATE_FILE,
+    cancel_request_path,
+    read_worker_state,
+    scan_job_payload,
+    write_worker_job,
+    write_worker_state,
+)
+from .ui import server_ui as _server_ui
 from .web_security import (
     AuthContext,
     SessionStore,
@@ -1777,8 +1777,8 @@ def start_scan_worker(workspace: Path, prepared: dict) -> subprocess.Popen:
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
         process = subprocess.Popen(
-            [sys.executable, "-m", "auditforge.scan_worker", "--job", str(job_path)],
-            cwd=str(Path(__file__).resolve().parents[1]),
+            [sys.executable, "-m", "auditforge.web.scan_worker", "--job", str(job_path)],
+            cwd=str(Path(__file__).resolve().parents[2]),
             stdin=subprocess.DEVNULL,
             stdout=stdout,
             stderr=stderr,

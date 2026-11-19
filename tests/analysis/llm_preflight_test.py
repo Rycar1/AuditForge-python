@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from auditforge.llm_candidates import LLMConfig, preflight_llm_config
+from auditforge.analysis.llm_candidates import LLMConfig, preflight_llm_config
 
 
 def test_missing_remote_key_is_disabled_before_task_fan_out(monkeypatch) -> None:

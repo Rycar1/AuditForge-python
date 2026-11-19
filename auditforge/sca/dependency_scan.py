@@ -16,9 +16,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from .llm_candidates import LLMConfig, load_llm_json_response, parse_json_object, with_output_contract
-from .models import Confidence, DependencyFinding, DependencyManifest, DependencyPackage, DependencySeverity
-from .utils import normalize_path
+from ..analysis.llm_candidates import LLMConfig, load_llm_json_response, parse_json_object, with_output_contract
+from ..core.models import Confidence, DependencyFinding, DependencyManifest, DependencyPackage, DependencySeverity
+from ..core.utils import normalize_path
 
 DEFAULT_DEPENDENCY_SYSTEM_PROMPT = (
     "你是资深软件成分分析（SCA）审计员，负责基于依赖清单生成需要复核的依赖漏洞候选。"

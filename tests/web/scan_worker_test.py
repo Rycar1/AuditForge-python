@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from auditforge import scan_worker, server
-from auditforge.logging_config import configure_logging, get_recent_logs, shutdown_logging
-from auditforge.scan_worker import (
+from auditforge.core.logging_config import configure_logging, get_recent_logs, shutdown_logging
+from auditforge.web import scan_worker, server
+from auditforge.web.scan_worker import (
     cancel_request_path,
     execute_worker_job,
     main,
@@ -202,7 +202,7 @@ def test_start_scan_worker_launches_module_worker(monkeypatch, tmp_path: Path) -
     process = server.start_scan_worker(workspace, prepared)
 
     assert process.pid == 43210
-    assert captured["command"][1:3] == ["-m", "auditforge.scan_worker"]
+    assert captured["command"][1:3] == ["-m", "auditforge.web.scan_worker"]
     assert worker_job_path(Path(prepared["run_dir"])).exists()
 
 

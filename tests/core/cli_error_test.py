@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from auditforge import cli
-from auditforge.logging_config import get_recent_logs, shutdown_logging
+from auditforge.core.logging_config import get_recent_logs, shutdown_logging
 
 
 @pytest.fixture(autouse=True)

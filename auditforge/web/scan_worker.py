@@ -2,7 +2,7 @@
 
 The HTTP server must stay responsive while a repository scan builds a large
 graph or waits on an LLM provider.  This module deliberately has no dependency
-on :mod:`auditforge.server`: it receives a non-secret job descriptor, writes a
+on :mod:`auditforge.web.server`: it receives a non-secret job descriptor, writes a
 small atomic state file, and executes the normal scan pipeline in its own
 process.
 """
@@ -19,12 +19,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .engine import run_scan
-from .llm_candidates import LLMConfig
-from .logging_config import configure_logging, contextual_logger, get_logger, shutdown_logging
-from .settings import llm_config_from_settings, load_workspace_settings, sandbox_concurrency_from_settings
-from .user_errors import classify_error, failure_payload, format_cli_error, new_reference, user_error
-from .utils import atomic_write_text
+from ..analysis.llm_candidates import LLMConfig
+from ..core.logging_config import configure_logging, contextual_logger, get_logger, shutdown_logging
+from ..core.settings import llm_config_from_settings, load_workspace_settings, sandbox_concurrency_from_settings
+from ..core.user_errors import classify_error, failure_payload, format_cli_error, new_reference, user_error
+from ..core.utils import atomic_write_text
+from ..engine import run_scan
 
 WORKER_STATE_FILE = "worker_state.json"
 WORKER_JOB_FILE = "scan_job.json"

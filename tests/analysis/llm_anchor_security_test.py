@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from auditforge.llm_candidates import LLMConfig, generate_llm_candidates
-from auditforge.scanner import scan_repo
+from auditforge.analysis.llm_candidates import LLMConfig, generate_llm_candidates
+from auditforge.analysis.scanner import scan_repo
 
 
 def test_llm_anchor_must_have_been_in_prompt_context(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     response = tmp_path / "response.json"
     response.write_text(
         json.dumps(

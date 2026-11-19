@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import auditforge.graph as graph_module
-from auditforge.graph import build_graph
-from auditforge.models import CallSiteFact, CodeAnchor, CodeFacts, FunctionFact, IndexedFile, SanitizerFact, SinkFact
+import auditforge.analysis.graph as graph_module
+from auditforge.analysis.graph import build_graph
+from auditforge.core.models import CallSiteFact, CodeAnchor, CodeFacts, FunctionFact, IndexedFile, SanitizerFact, SinkFact
 
 
 def test_indexed_call_resolution_scales_for_many_java_service_calls() -> None:

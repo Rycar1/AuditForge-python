@@ -4,11 +4,11 @@ import html
 import json
 from pathlib import Path
 
-from .models import DependencyFinding, ScanResult, TraceCandidate, VerificationResult
-from .project_inventory import inventory_summary
+from ..analysis.project_inventory import inventory_summary
+from ..core.models import DependencyFinding, ScanResult, TraceCandidate, VerificationResult
+from ..core.snippets import candidate_flow_nodes, code_window, format_anchor
+from ..core.utils import atomic_write_text
 from .result_sections import collect_declarative_validation_runs, redact_validation_payload, section_id_for_verification
-from .snippets import candidate_flow_nodes, code_window, format_anchor
-from .utils import atomic_write_text
 
 
 def write_reports(workspace: Path, result: ScanResult) -> None:

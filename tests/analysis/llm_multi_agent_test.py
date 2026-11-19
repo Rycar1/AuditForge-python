@@ -5,8 +5,14 @@ import threading
 import time
 from pathlib import Path
 
-from auditforge.llm_candidates import LLMConfig, build_code_context, build_llm_prompt, generate_llm_candidates, plan_llm_audit_tasks
-from auditforge.scanner import scan_repo
+from auditforge.analysis.llm_candidates import (
+    LLMConfig,
+    build_code_context,
+    build_llm_prompt,
+    generate_llm_candidates,
+    plan_llm_audit_tasks,
+)
+from auditforge.analysis.scanner import scan_repo
 
 
 def _candidate(vuln_class: str, source_line: int, sink_line: int) -> dict:
@@ -35,7 +41,7 @@ def _agent_response(prompt: str) -> str:
 
 
 def test_multi_agent_plan_contains_specialists_and_targeted_scopes() -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     tasks = plan_llm_audit_tasks(scan_repo(repo))
 
     assert {task.agent.id for task in tasks} == {"dataflow_injection", "auth_authz", "web_ssrf_xss"}
@@ -45,7 +51,7 @@ def test_multi_agent_plan_contains_specialists_and_targeted_scopes() -> None:
 
 
 def test_multi_agent_audit_runs_concurrently_and_merges_stably(monkeypatch) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     facts = scan_repo(repo)
     state = {"active": 0, "peak": 0}
     lock = threading.Lock()
@@ -67,7 +73,7 @@ def test_multi_agent_audit_runs_concurrently_and_merges_stably(monkeypatch) -> N
             with lock:
                 state["active"] -= 1
 
-    monkeypatch.setattr("auditforge.llm_candidates.load_llm_response", fake_response)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.load_llm_response", fake_response)
     config = LLMConfig(enabled=True, concurrency=3, max_candidates=3)
 
     first, diagnostics = generate_llm_candidates(repo, facts, [], config)
@@ -88,7 +94,7 @@ def test_multi_agent_audit_runs_concurrently_and_merges_stably(monkeypatch) -> N
 
 
 def test_multi_agent_failure_isolated_and_reported(monkeypatch) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     facts = scan_repo(repo)
 
     def partially_failing_response(prompt: str, config: LLMConfig) -> str:
@@ -97,7 +103,7 @@ def test_multi_agent_failure_isolated_and_reported(monkeypatch) -> None:
             raise TimeoutError("auth agent timed out")
         return _agent_response(prompt)
 
-    monkeypatch.setattr("auditforge.llm_candidates.load_llm_response", partially_failing_response)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.load_llm_response", partially_failing_response)
     candidates, diagnostics = generate_llm_candidates(repo, facts, [], LLMConfig(enabled=True, concurrency=4))
 
     assert [candidate.vuln_class for candidate in candidates] == ["injection", "xss"]
@@ -109,7 +115,7 @@ def test_multi_agent_failure_isolated_and_reported(monkeypatch) -> None:
 
 
 def test_multi_agent_stage_deadline_returns_without_waiting_for_stalled_provider(monkeypatch) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     facts = scan_repo(repo)
 
     def stalled_response(prompt: str, config: LLMConfig) -> str:
@@ -117,8 +123,8 @@ def test_multi_agent_stage_deadline_returns_without_waiting_for_stalled_provider
         time.sleep(1)
         return json.dumps({"candidates": []})
 
-    monkeypatch.setattr("auditforge.llm_candidates.load_llm_response", stalled_response)
-    monkeypatch.setattr("auditforge.llm_candidates.llm_stage_timeout_seconds", lambda *args: 0)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.load_llm_response", stalled_response)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.llm_stage_timeout_seconds", lambda *args: 0)
 
     started = time.monotonic()
     candidates, diagnostics = generate_llm_candidates(repo, facts, [], LLMConfig(enabled=True, concurrency=3))
@@ -131,7 +137,7 @@ def test_multi_agent_stage_deadline_returns_without_waiting_for_stalled_provider
 
 
 def test_local_evidence_gate_rejects_disconnected_trace(monkeypatch) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     facts = scan_repo(repo)
 
     def disconnected_response(prompt: str, config: LLMConfig) -> str:
@@ -151,7 +157,7 @@ def test_local_evidence_gate_rejects_disconnected_trace(monkeypatch) -> None:
         ]
         return json.dumps({"candidates": [candidate]}, ensure_ascii=False)
 
-    monkeypatch.setattr("auditforge.llm_candidates.load_llm_response", disconnected_response)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.load_llm_response", disconnected_response)
     candidates, diagnostics = generate_llm_candidates(repo, facts, [], LLMConfig(enabled=True, concurrency=3))
 
     assert candidates == []
@@ -161,7 +167,7 @@ def test_local_evidence_gate_rejects_disconnected_trace(monkeypatch) -> None:
 
 
 def test_quality_sorting_prefers_complete_unsanitized_trace_before_limit(monkeypatch) -> None:
-    repo = Path(__file__).resolve().parents[1] / "fixtures" / "polyglot_vulnerable"
+    repo = Path(__file__).resolve().parents[2] / "fixtures" / "polyglot_vulnerable"
     facts = scan_repo(repo)
 
     def ranked_response(prompt: str, config: LLMConfig) -> str:
@@ -183,7 +189,7 @@ def test_quality_sorting_prefers_complete_unsanitized_trace_before_limit(monkeyp
         ]
         return json.dumps({"candidates": [sanitized, vulnerable]}, ensure_ascii=False)
 
-    monkeypatch.setattr("auditforge.llm_candidates.load_llm_response", ranked_response)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.load_llm_response", ranked_response)
     candidates, diagnostics = generate_llm_candidates(
         repo,
         facts,

@@ -3,8 +3,9 @@ from __future__ import annotations
 from html.parser import HTMLParser
 from pathlib import Path
 
-from auditforge import server, server_ui, ui_settings
-from auditforge.settings import default_settings, public_settings
+from auditforge.core.settings import default_settings, public_settings
+from auditforge.web import server
+from auditforge.web.ui import server_ui, ui_settings
 
 
 class SettingsDOM(HTMLParser):
@@ -143,7 +144,7 @@ def test_server_settings_adapter_uses_new_shell_and_module(tmp_path: Path) -> No
     dom = parse_settings(document)
 
     assert server.render_settings_page is server_ui.render_settings_page
-    assert server_ui.render_settings_page.__module__ == "auditforge.server_ui"
+    assert server_ui.render_settings_page.__module__ == "auditforge.web.ui.server_ui"
     assert {"app-shell", "command-bar", "side-rail", "workspace-main", "settings-workbench"} <= dom.classes
     assert '<a class="nav-link is-active" href="/settings" aria-current="page">设置</a>' in document
     assert "window.auditforgeRequestJson('/api/settings/test-llm'" in document

@@ -9,7 +9,7 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
-from .web_security import atomic_write_json, locked_path, redact_url
+from ..web.web_security import atomic_write_json, locked_path, redact_url
 
 SECRETS_FILE = ".auditforge_secrets.json"
 

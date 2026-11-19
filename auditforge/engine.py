@@ -5,26 +5,26 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .audit_coverage import build_audit_coverage
-from .candidates import build_trace_candidates
-from .deep_verification import run_deep_verification
-from .dependency_scan import analyze_dependencies_with_llm, scan_dependency_manifests
-from .direct_findings import generate_direct_candidates
-from .graph import build_graph
-from .graph_artifacts import write_graph_artifacts
-from .llm_candidates import LLMConfig, generate_llm_candidates, preflight_llm_config, triage_candidates_with_llm
-from .logging_config import contextual_logger, get_logger
-from .models import ScanResult, VerificationResult
-from .project_inventory import build_project_inventory, inventory_summary
-from .report import write_reports
-from .result_sections import build_result_sections, has_runtime_negative_evidence
-from .sbom import build_cyclonedx_sbom
-from .scanner import scan_repo
-from .semantic_findings import generate_semantic_candidates
-from .store import write_store
-from .utils import write_json
-from .validation_runner import ValidationRunnerConfig
-from .verification import build_verification_plans, run_safe_verification
+from .analysis.audit_coverage import build_audit_coverage
+from .analysis.candidates import build_trace_candidates
+from .analysis.direct_findings import generate_direct_candidates
+from .analysis.graph import build_graph
+from .analysis.graph_artifacts import write_graph_artifacts
+from .analysis.llm_candidates import LLMConfig, generate_llm_candidates, preflight_llm_config, triage_candidates_with_llm
+from .analysis.project_inventory import build_project_inventory, inventory_summary
+from .analysis.scanner import scan_repo
+from .analysis.semantic_findings import generate_semantic_candidates
+from .core.logging_config import contextual_logger, get_logger
+from .core.models import ScanResult, VerificationResult
+from .core.utils import write_json
+from .reporting.report import write_reports
+from .reporting.result_sections import build_result_sections, has_runtime_negative_evidence
+from .reporting.store import write_store
+from .sca.dependency_scan import analyze_dependencies_with_llm, scan_dependency_manifests
+from .sca.sbom import build_cyclonedx_sbom
+from .verification.deep_verification import run_deep_verification
+from .verification.validation_runner import ValidationRunnerConfig
+from .verification.verification import build_verification_plans, run_safe_verification
 
 
 def run_scan(

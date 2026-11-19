@@ -13,8 +13,8 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from ..core.models import DataFlowFact, FunctionFact, SanitizerFact, SinkFact, SourceFact
 from .language_frontend import LanguageFactBuilder, dedupe_strings
-from .models import DataFlowFact, FunctionFact, SanitizerFact, SinkFact, SourceFact
 
 _UNKNOWN = object()
 _PRIMITIVE_OR_COMMON_TYPES = {

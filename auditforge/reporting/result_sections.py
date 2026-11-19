@@ -5,10 +5,10 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from .logging_config import redact
-from .models import ScanResult, VerificationResult
-from .validation_dsl import ValidationEvidenceResult
-from .web_security import redact_url
+from ..core.logging_config import redact
+from ..core.models import ScanResult, VerificationResult
+from ..verification.validation_dsl import ValidationEvidenceResult
+from ..web.web_security import redact_url
 
 DECLARATIVE_VALIDATION_TYPES = frozenset(
     {

@@ -4,14 +4,15 @@ import json
 import sqlite3
 from pathlib import Path
 
-from auditforge import server, server_ui
-from auditforge.store import (
+from auditforge.reporting.store import (
     DASHBOARD_DETAIL_ARTIFACTS,
     SCHEMA,
     read_dashboard_data,
     read_dashboard_detail,
     read_dashboard_summary,
 )
+from auditforge.web import server
+from auditforge.web.ui import server_ui
 
 
 def create_run_store(run_dir: Path) -> None:

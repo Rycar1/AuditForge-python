@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from .models import (
+from ..core.models import (
     CallSiteFact,
     ClassFact,
     CodeAnchor,
@@ -26,7 +26,7 @@ from .models import (
     SinkFact,
     SourceFact,
 )
-from .utils import sha256_text, stable_id
+from ..core.utils import sha256_text, stable_id
 
 SINK_TAXONOMY: dict[str, tuple[str, list[str]]] = {
     "raw_sql": ("sql_injection", ["CWE-89"]),

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from auditforge.models import DependencyFinding, DependencyManifest, DependencyPackage
-from auditforge.sbom import build_cyclonedx_sbom
+from auditforge.core.models import DependencyFinding, DependencyManifest, DependencyPackage
+from auditforge.sca.sbom import build_cyclonedx_sbom
 
 
 def test_cyclonedx_sbom_links_findings_to_exact_component() -> None:

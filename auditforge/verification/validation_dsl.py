@@ -258,7 +258,7 @@ class DeclarativeValidationPlan:
 
 
 # A short name is useful to callers that import this module explicitly.  The
-# existing auditforge.models.VerificationPlan remains a separate legacy model.
+# existing auditforge.core.models.VerificationPlan remains a separate legacy model.
 ValidationPlan = DeclarativeValidationPlan
 
 

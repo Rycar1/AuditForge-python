@@ -7,9 +7,9 @@ from threading import Lock, Thread
 
 import pytest
 
-import auditforge.verification as verification
-from auditforge.models import CodeAnchor, CodeFacts, RouteFact, SourceFact, TraceCandidate
-from auditforge.verification import (
+import auditforge.verification.verification as verification
+from auditforge.core.models import CodeAnchor, CodeFacts, RouteFact, SourceFact, TraceCandidate
+from auditforge.verification.verification import (
     SAFE_UUID_PATH_VALUE,
     HttpResponseRecord,
     build_safe_request_contract,

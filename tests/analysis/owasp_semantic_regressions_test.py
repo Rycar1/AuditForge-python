@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from auditforge.candidates import build_trace_candidates
-from auditforge.graph import build_graph
-from auditforge.llm_candidates import (
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.llm_candidates import (
     LLMConfig,
     generate_llm_candidates,
     normalize_one_candidate,
     plan_llm_audit_tasks,
 )
-from auditforge.scanner import scan_repo
-from auditforge.semantic_findings import generate_semantic_candidates
+from auditforge.analysis.scanner import scan_repo
+from auditforge.analysis.semantic_findings import generate_semantic_candidates
 
 
 def _scan_all(repo: Path) -> list:
@@ -274,7 +274,7 @@ def test_llm_budget_sharding_and_native_cwe_inheritance(tmp_path: Path, monkeypa
     )
     facts2 = scan_repo(tmp_path)
     monkeypatch.setattr(
-        "auditforge.llm_candidates.run_llm_audit_task",
+        "auditforge.analysis.llm_candidates.run_llm_audit_task",
         lambda prompt, config: {
             "candidates": [
                 {
@@ -750,7 +750,7 @@ public class GeneralJava extends HttpServlet {
 
 
 def test_llm_evidence_review_separates_all_vs_verified_and_filters_false_positives(tmp_path: Path, monkeypatch) -> None:
-    from auditforge.llm_candidates import review_candidates_with_evidence
+    from auditforge.analysis.llm_candidates import review_candidates_with_evidence
 
     (tmp_path / "app.py").write_text(
         "from flask import request\n"
@@ -766,7 +766,7 @@ def test_llm_evidence_review_separates_all_vs_verified_and_filters_false_positiv
     facts = scan_repo(tmp_path)
 
     monkeypatch.setattr(
-        "auditforge.llm_candidates.run_llm_audit_task",
+        "auditforge.analysis.llm_candidates.run_llm_audit_task",
         lambda prompt, config: {
             "candidates": [
                 {
@@ -840,8 +840,8 @@ def test_llm_evidence_review_separates_all_vs_verified_and_filters_false_positiv
 def test_llm_triage_filters_only_grounded_high_confidence_fp_and_preserves_all(tmp_path: Path, monkeypatch) -> None:
     import json
 
+    from auditforge.analysis.llm_candidates import LLMConfig, triage_candidates_with_llm
     from auditforge.engine import run_scan
-    from auditforge.llm_candidates import LLMConfig, triage_candidates_with_llm
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -926,7 +926,7 @@ def test_llm_triage_filters_only_grounded_high_confidence_fp_and_preserves_all(t
                 )
         return json.dumps({"reviews": reviews}, ensure_ascii=False)
 
-    monkeypatch.setattr("auditforge.llm_candidates.load_llm_json_response", fake_triage)
+    monkeypatch.setattr("auditforge.analysis.llm_candidates.load_llm_json_response", fake_triage)
     monkeypatch.setenv("TEST_TRIAGE_KEY", "dummy-key")
     kept, triage_diag = triage_candidates_with_llm(
         repo,

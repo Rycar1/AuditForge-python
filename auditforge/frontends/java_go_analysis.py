@@ -3,7 +3,7 @@
 The frontends intentionally emit the shared language-neutral facts instead of
 pretending to be full compilers.  They recognize common framework bindings and
 security-sensitive APIs, retain function scope, and leave ``analysis_method`` as
-``heuristic`` as required by :mod:`auditforge.language_frontend`.
+``heuristic`` as required by :mod:`auditforge.frontends.language_frontend`.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
+from ..core.models import FunctionFact
 from .language_frontend import (
     LanguageAnalysisResult,
     LanguageFactBuilder,
@@ -20,7 +21,6 @@ from .language_frontend import (
     split_arguments,
     strip_literals_and_comments,
 )
-from .models import FunctionFact
 
 _WORD = re.compile(r"[A-Za-z_$][\w$]*")
 _ACCESS = re.compile(r"\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|\[[^\]\n]+\])*")

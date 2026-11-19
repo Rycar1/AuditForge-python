@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from auditforge.utils import read_json, write_json
-from auditforge.validation_dsl import ValidationPlanError, normalize_validation_plan
-from auditforge.validation_runner import (
+from auditforge.core.utils import read_json, write_json
+from auditforge.verification.validation_dsl import ValidationPlanError, normalize_validation_plan
+from auditforge.verification.validation_runner import (
     MAX_RESPONSE_SAMPLE_BYTES,
     RUNNER_TIMEOUT_ENV,
     STALE_PROCESSING_SECONDS,
@@ -33,7 +33,7 @@ from auditforge.validation_runner import (
 
 
 def load_batch_runner_module():
-    path = Path(__file__).resolve().parents[1] / "validation" / "batch_vuln_lab_runner.py"
+    path = Path(__file__).resolve().parents[2] / "validation" / "batch_vuln_lab_runner.py"
     spec = importlib.util.spec_from_file_location("batch_vuln_lab_runner_test_module", path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

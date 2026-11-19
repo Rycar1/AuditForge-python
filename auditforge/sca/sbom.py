@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .models import DependencyFinding, DependencyManifest, DependencyPackage
+from ..core.models import DependencyFinding, DependencyManifest, DependencyPackage
 
 
 def build_cyclonedx_sbom(

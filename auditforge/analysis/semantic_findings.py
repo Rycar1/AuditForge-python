@@ -5,9 +5,9 @@ import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ..core.models import CodeAnchor, CodeFacts, CodeGraph, SourceFact, TraceCandidate, TraceStep
+from ..core.utils import normalize_path, sha256_text
 from .candidates import nearest_route_id
-from .models import CodeAnchor, CodeFacts, CodeGraph, SourceFact, TraceCandidate, TraceStep
-from .utils import normalize_path, sha256_text
 
 
 @dataclass(frozen=True)

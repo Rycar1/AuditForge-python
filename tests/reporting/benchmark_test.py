@@ -4,15 +4,15 @@ import json
 import re
 from pathlib import Path
 
-from auditforge.benchmark import TruthAnchor, TruthFinding, evaluate_candidates, load_ground_truth
-from auditforge.candidates import build_trace_candidates
-from auditforge.fingerprints import finding_fingerprint
-from auditforge.graph import build_graph
-from auditforge.models import CodeAnchor, TraceCandidate
-from auditforge.scanner import scan_repo
-from auditforge.semantic_findings import generate_semantic_candidates
+from auditforge.analysis.candidates import build_trace_candidates
+from auditforge.analysis.graph import build_graph
+from auditforge.analysis.scanner import scan_repo
+from auditforge.analysis.semantic_findings import generate_semantic_candidates
+from auditforge.core.fingerprints import finding_fingerprint
+from auditforge.core.models import CodeAnchor, TraceCandidate
+from auditforge.reporting.benchmark import TruthAnchor, TruthFinding, evaluate_candidates, load_ground_truth
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def make_candidate(source_line: int = 10, sink_line: int = 20) -> TraceCandidate:

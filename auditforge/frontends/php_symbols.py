@@ -16,10 +16,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from ..core.models import ClassFact, CodeFacts, FunctionFact, ImportFact
+from ..core.utils import normalize_path
 from .language_frontend import split_arguments
-from .models import ClassFact, CodeFacts, FunctionFact, ImportFact
 from .php_analysis import _logical_php_statements
-from .utils import normalize_path
 
 MAX_COMPOSER_MANIFESTS = 64
 MAX_COMPOSER_BYTES = 1024 * 1024

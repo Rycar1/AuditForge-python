@@ -4,10 +4,9 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
+from auditforge.analysis.llm_candidates import DEFAULT_CANDIDATE_SYSTEM_PROMPT, DEFAULT_CANDIDATE_USER_PROMPT, DEFAULT_MODEL
 from auditforge.cli import build_llm_config, llm_profile_requested
-from auditforge.deep_verification import DEFAULT_DEEP_SYSTEM_PROMPT, DEFAULT_DEEP_USER_PROMPT
-from auditforge.llm_candidates import DEFAULT_CANDIDATE_SYSTEM_PROMPT, DEFAULT_CANDIDATE_USER_PROMPT, DEFAULT_MODEL
-from auditforge.settings import (
+from auditforge.core.settings import (
     LEGACY_DEFAULT_PROMPTS,
     LEGACY_DEFAULT_PROMPTS_V2,
     LEGACY_DEFAULT_PROMPTS_V3,
@@ -19,6 +18,7 @@ from auditforge.settings import (
     save_workspace_settings,
     settings_path,
 )
+from auditforge.verification.deep_verification import DEFAULT_DEEP_SYSTEM_PROMPT, DEFAULT_DEEP_USER_PROMPT
 
 
 def test_sandbox_concurrency_is_independent_and_legacy_compatible() -> None:

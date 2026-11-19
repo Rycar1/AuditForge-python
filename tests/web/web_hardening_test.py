@@ -11,11 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from auditforge import web_security
-from auditforge.logging_config import configure_logging, get_logger, get_recent_logs, shutdown_logging
-from auditforge.scan_worker import cancel_request_path, read_worker_state, write_worker_state
-from auditforge.secret_store import secrets_path
-from auditforge.server import (
+from auditforge.core.logging_config import configure_logging, get_logger, get_recent_logs, shutdown_logging
+from auditforge.core.secret_store import secrets_path
+from auditforge.core.settings import default_settings, load_workspace_settings, public_settings, save_workspace_settings, settings_path
+from auditforge.web import web_security
+from auditforge.web.scan_worker import cancel_request_path, read_worker_state, write_worker_state
+from auditforge.web.server import (
     _write_response_body,
     cancel_scan_run,
     create_workspace_server,
@@ -29,8 +30,7 @@ from auditforge.server import (
     save_candidate_triage,
     save_runs,
 )
-from auditforge.settings import default_settings, load_workspace_settings, public_settings, save_workspace_settings, settings_path
-from auditforge.web_security import WebSecurityConfig, atomic_write_json, validate_repo_path
+from auditforge.web.web_security import WebSecurityConfig, atomic_write_json, validate_repo_path
 
 
 def request(server, method: str, path: str, *, headers: dict[str, str] | None = None, body: bytes | None = None):

@@ -8,7 +8,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any
 
-from .models import CallSiteFact, FunctionFact, ImportFact
+from ..core.models import CallSiteFact, FunctionFact, ImportFact
 
 
 def resolution_models_from_diagnostics(diagnostics: Mapping[str, Any] | None) -> dict[str, list[Any]]:

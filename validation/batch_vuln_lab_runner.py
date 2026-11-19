@@ -12,7 +12,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from auditforge.graph_artifacts import read_graph_facts
+from auditforge.analysis.graph_artifacts import read_graph_facts
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT / "workspace-smoke"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from auditforge.validation_dsl import (
+from auditforge.verification.validation_dsl import (
     MAX_BODY_BYTES,
     MAX_HEADERS,
     MAX_STEPS,
